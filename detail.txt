@@ -1,0 +1,21 @@
+2. URL Shortener with Redis
+Rebuild your URL Shortener using Redis:
+
+Store short codes in Redis
+Add expiration time using TTL
+Count clicks with Redis counters
+Cache redirect results
+Add analytics dashboard
+Add rate limiting
+Important Redis commands:
+
+SET
+GET
+INCR
+EXPIRE
+TTL
+DEL
+HSET
+SADD
+
+counts, and rate limiting. [1] (https://www.linkedin.com/posts/manish-rai-50095a28a_webdevelopment-react-nodejs-activity-7493538994392293376-NU1L), [2] (https://oneuptime.com/blog/post/2026-01-25-url-shortener-redis-go/view)Core Architecture & Redis Data ModelsShort Code Mapping: Store the short code as a key and the long URL as the value using a Redis String or Hash (HSET).Expiration (TTL): Automatically expire links using Redis EXPIRE or passing the TTL directly during creation.Click Counters: Increment click tracking atomically using Redis INCR or HINCRBY.Rate Limiting: Track client IP or user requests using a counter with a short expiration window (e.g., 60 seconds). [1] (https://medium.com/me-n-stack-development/15-minutes-to-understand-url-shortener-system-design-27268013bd25), [2] (https://www.freecodecamp.org/news/build-a-scalable-url-shortener-with-distributed-caching-using-redis/), [3] (https://upstash.com/docs/redis/tutorials/python_url_shortener), [4] (https://oneuptime.com/blog/post/2026-03-31-redis-how-to-build-a-url-shortener-with-redis/view)Important Redis CommandsSET key value EX seconds: Stores a key-value pair and sets a time-to-live (TTL) in seconds.GET key: Retrieves the original long URL.INCR key / HINCRBY key field increment: Atomically increases the click counter or metadata metric.EXPIRE key seconds: Sets or updates the expiration time on an existing key.TTL key: Checks how many seconds remain before a short link expires. [1] (https://medium.com/@fidelwole/how-to-build-a-url-shortener-in-go-with-redis-no-frameworks-d2f50df26ac2), [2] (https://oneuptime.com/blog/post/2026-03-31-redis-how-to-build-a-url-shortener-with-redis/view), [3] (https://www.freecodecamp.org/news/build-a-scalable-url-shortener-with-distributed-caching-using-redis/), [4] (https://medium.com/me-n-stack-development/15-minutes-to-understand-url-shortener-system-design-27268013bd25)Implementation WorkflowShorten URL: Generate a unique short code (like a Base62 string). Save short_code -> long_url in Redis with an optional TTL using SET. [1] (https://upstash.com/docs/redis/tutorials/python_url_shortener), [2] (https://oneuptime.com/blog/post/2026-03-31-redis-how-to-build-a-url-shortener-with-redis/view), [3] (https://www.freecodecamp.org/news/build-a-scalable-url-shortener-with-distributed-caching-using-redis/)Rate Limiting: Before processing, check a key like rate:ip:<user_ip>. If it exceeds your threshold, reject the request. Otherwise, run INCR with a 60-second EXPIRE if it's new.Redirect & Count Clicks: When a user visits the short link, fetch the long URL via GET. Run INCR on a separate counter key like clicks:<short_code> to track usage without slowing down the redirect. Issue an HTTP 302 Found redirect to the long URL. [1] (https://dev.to/dinithi_pramodya_ad93a533/building-a-simple-url-shortener-with-go-and-redis-1i62), [2] (https://www.systemdesigninterview.com/guides/system-design-interview-handbook/82-design-a-url-shortener), [3] (https://medium.com/@fidelwole/how-to-build-a-url-shortener-in-go-with-redis-no-frameworks-d2f50df26ac2), [4] (https://oneuptime.com/blog/post/2026-03-31-redis-how-to-build-a-url-shortener-with-redis/view), [5] (https://www.linkedin.com/posts/manish-rai-50095a28a_webdevelopment-react-nodejs-activity-7493538994392293376-NU1L)Analytics Dashboard: Read aggregate counts using GET or retrieve detailed hashes to display total clicks and expiration countdowns.
