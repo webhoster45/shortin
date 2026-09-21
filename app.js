@@ -14,8 +14,9 @@ const activeclients=[];
 
 const Surlschema=mongoose.Schema({
     original_url:{type:String,required:true},
-    shortcode:{type:Number,required:true},
-	clickcount:{type:Number}
+    shortcode:{type:String,required:true},
+	creator:{type:String,required:true},
+	clickcount:{type:Number,default:0}
 },{timestamps:true})
 
 const Surl=mongoose.model('Surl',Surlschema)
@@ -74,9 +75,15 @@ app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname, 'code.html'));
 });
 
-app.post('/shorten',requireredis,async (req,res)=>{
-    const {originalurl}=req.body;
-    
+app.post('/shorten',async (req,res)=>{
+try {
+	const {original_url,creator}=req.body;
+	let shortcode=generatelogic()
+    await Surl.create({original_url,shortcode,creator:"wale"});
+	return res.status(200).json({message:'Short Url created'});
+} catch (error) {
+	return res.status(500).json({message:"Internal Server Error",error})
+}
 })
 
 startapp();
