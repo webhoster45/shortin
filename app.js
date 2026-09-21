@@ -10,36 +10,7 @@ const {createClient}=require('redis');
 const { Socket } = require('dgram');
 const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECRET=process.env.JWT_SECERT;
-
-
-const redisoptions={
-	url:process.env.REDIS_URL,
-	socket:(retries)=>Math.min(retries*250,300)
-}
-
-const redispublisher=createClient(redisoptions);
-const redissubscriber=createClient(redisoptions);
-
-for(const client of [redispublisher,redissubscriber]){
-	client.on('error',(error)=>console.log('Redis Client Error',error.message))
-}
-
-function requireredis(req,res,next){
-	if (redispublisher.isReady||redissubscriber.isReady) next();
-	return res.status(503).json({message:'Redis is unavaliable'})
-}
-
-async function startapp(){
-	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
-	Promise.all([
-		redispublisher.connect(),
-		redissubscriber.connect(),
-		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
-	]);
-    app.listen(port, () => {
-	console.log(`Shortin is running at Port: ${port}`);
-});
-}
+const activeclients=[];
 
 const Surlschema=mongoose.Schema({
     original_url:{type:String,required:true},
@@ -48,6 +19,41 @@ const Surlschema=mongoose.Schema({
 },{timestamps:true})
 
 const Surl=mongoose.model('Surl',Surlschema)
+
+
+// const redisoptions={
+// 	url:process.env.REDIS_URL,
+// 	socket:(retries)=>Math.min(retries*250,300)
+// }
+
+// const redispublisher=createClient(redisoptions);
+// const redissubscriber=createClient(redisoptions);
+
+// for(const client of [redispublisher,redissubscriber]){
+// 	client.on('error',(error)=>console.log('Redis Client Error',error.message))
+// }
+
+// function requireredis(req,res,next){
+// 	if (redispublisher.isReady||redissubscriber.isReady) next();
+// 	return res.status(503).json({message:'Redis is unavaliable'})
+// }
+
+async function startapp(){
+	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
+	await Promise.all([
+		// redispublisher.connect(),
+		// redissubscriber.connect(),
+		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
+	]);
+	// await redissubscriber.subscribe('notifications',(message)=>{
+	// 	for (const client of activeclients) client.write(`data:${message}\n\n`)
+	// })
+    app.listen(port, () => {
+	console.log(`Shortin is running at Port: ${port}`);
+});
+}
+
+
 
 function generatelogic(){
 	let string='';
@@ -69,6 +75,7 @@ app.get('/', (req, res) => {
 });
 
 app.post('/shorten',requireredis,async (req,res)=>{
+    const {originalurl}=req.body;
     
 })
 
