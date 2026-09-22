@@ -4,6 +4,7 @@ const express=require('express');
 const app = express();
 const port = process.env.PORT || 3000;
 const mongoose=require('mongoose');
+const bcrypt=require("bcrypt");
 const { type } = require('os');
 const characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const {createClient}=require('redis');
@@ -11,6 +12,12 @@ const { Socket } = require('dgram');
 const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECRET=process.env.JWT_SECERT;
 const activeclients=[];
+
+const Userschema=mongoose.Schema({
+	username:{type:String,required:true},
+	email:{type:String,required:true},
+	password:{type:String,required:true}
+},{timestamps:true})
 
 const Surlschema=mongoose.Schema({
     original_url:{type:String,required:true},
@@ -20,7 +27,7 @@ const Surlschema=mongoose.Schema({
 },{timestamps:true})
 
 const Surl=mongoose.model('Surl',Surlschema)
-
+const User=mongoose.model('User',Userschema)
 
 // const redisoptions={
 // 	url:process.env.REDIS_URL,
@@ -38,6 +45,24 @@ const Surl=mongoose.model('Surl',Surlschema)
 // 	if (redispublisher.isReady||redissubscriber.isReady) next();
 // 	return res.status(503).json({message:'Redis is unavaliable'})
 // }
+
+
+const authmiddleware=async (req,res)=>{
+	try {
+		const authheader=req.headers.authorization;
+		if(!authheader) return res.status(401).json({message:"Unauthorized"});
+		const token=authheader.split(" ")[1];
+		if(!token) return res.status(401).json({message:"Unauthorized"})
+		jwt.verify(token,JWT_SECRET,(err,decoded)=>{
+			if(err) return res.status(401).json({message:"Unauthorized"})
+			req.user=decoded;
+			next();
+		})
+
+	} catch (error) {
+		return res.status(500).json({message:"Internal Server Error",error})
+	}
+}
 
 async function startapp(){
 	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
@@ -75,15 +100,44 @@ app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname, 'code.html'));
 });
 
-app.post('/shorten',async (req,res)=>{
+app.post('/registerorlogin',authmiddleware,async (req,res)=>{
+	try {
+		const {username,password,email}=req.body;
+        if(!username||!password||!email) return res.status(400).json({message:"Missing Parameters"});
+		const existinguser=await User.findOne({username});
+		if(!existinguser){
+           const encrypted=await bcrypt.hash(password,10);
+		}
+		await User.create({username,password,email});
+		const token=jwt.sign({username,encrypted},JWT_SECRET)
+		return res.status(200).json({message:`${username} has been created / Logged in`,token})
+	} catch (error) {
+		return res.status(500).json({message:"Internal Server Error",error})
+	}
+})
+
+app.post('/shorten',authmiddleware,async (req,res)=>{
 try {
+	const username=req.user.username;
 	const {original_url,creator}=req.body;
 	let shortcode=generatelogic()
-    await Surl.create({original_url,shortcode,creator:"wale"});
+    await Surl.create({original_url,shortcode,creator:username});
 	return res.status(200).json({message:'Short Url created'});
 } catch (error) {
 	return res.status(500).json({message:"Internal Server Error",error})
 }
-})
+});
 
+
+app.post('/:shortcode',authmiddleware,async (req,res)=>{
+	try {
+	const username=req.user.username;
+    const shortcode=req.params.shortcode;
+	const existing=await User.findOne({shortcode})
+	if(!existing) return res.status(404).json({message:"Link not found in database"})
+	res.redirect(existing.original_url)
+	} catch (error) {
+		return res.status(500).json({message:'Internal Server Error',error})
+	}
+})
 startapp();

@@ -1,7 +1,7 @@
 2. URL Shortener with Redis
 Rebuild your URL Shortener using Redis:
 
-checklist
+-------------checklist-----------
 Build functional shortin first
 Store short codes in Redis
 Add expiration time using TTL
