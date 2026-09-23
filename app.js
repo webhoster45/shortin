@@ -11,7 +11,14 @@ const {createClient}=require('redis');
 const { Socket } = require('dgram');
 const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECRET=process.env.JWT_SECERT;
+const jwt=require("jsonwebtoken")
 const activeclients=[];
+
+const allowedevents=new Set(['cacheresults','registerorlogin','clicks','expirytime'])
+
+const keys={
+	coderecord:'Short Code records: '
+}
 
 const Userschema=mongoose.Schema({
 	username:{type:String,required:true},
@@ -26,8 +33,10 @@ const Surlschema=mongoose.Schema({
 	clickcount:{type:Number,default:0}
 },{timestamps:true})
 
-const Surl=mongoose.model('Surl',Surlschema)
-const User=mongoose.model('User',Userschema)
+const Surl=mongoose.model('Surl',Surlschema);
+const User=mongoose.model('User',Userschema);
+
+//----------------------------Comment this part when you want to start testing without redis-------
 
 // const redisoptions={
 // 	url:process.env.REDIS_URL,
@@ -46,20 +55,46 @@ const User=mongoose.model('User',Userschema)
 // 	return res.status(503).json({message:'Redis is unavaliable'})
 // }
 
+// async function claimevent(eventid,username){
+//    try {
+// 	   if(!eventid) return null;
+// 	   if(eventid.length>200){
+// 	   const error=new Error('Idempotency key too long')
+// 	   error.status(400);
+// 	   throw error;
+// 	   }
+// 	   const key=`event: ${username} : ${eventid}`;
+// 	   const claimed=await redispublisher.set(key,processing,{NX:true,EX:86400});
+// 	   if(!claimed=='OK'){
+// 		const error=new Error("Event already processing");
+// 		error.status=409;
+// 		throw error;
+// 	   }
+// 	   return key;
+//    } catch (error) {
+// 	   console.log("Error")
+//    }
+// }
 
-const authmiddleware=async (req,res)=>{
+
+//----------------------------Comment this part when you want to start testing without redis-------
+
+
+const authmiddleware=async (req,res,next)=>{
 	try {
 		const authheader=req.headers.authorization;
 		if(!authheader) return res.status(401).json({message:"Unauthorized"});
 		const token=authheader.split(" ")[1];
+		
 		if(!token) return res.status(401).json({message:"Unauthorized"})
 		jwt.verify(token,JWT_SECRET,(err,decoded)=>{
 			if(err) return res.status(401).json({message:"Unauthorized"})
 			req.user=decoded;
-			next();
+ 			next();            
 		})
 
 	} catch (error) {
+		console.log("here ooo")
 		return res.status(500).json({message:"Internal Server Error",error})
 	}
 }
@@ -100,27 +135,52 @@ app.get('/', (req, res) => {
 	res.sendFile(path.join(__dirname, 'code.html'));
 });
 
-app.post('/registerorlogin',authmiddleware,async (req,res)=>{
+app.post('/registerorlogin',async (req,res)=>{
 	try {
 		const {username,password,email}=req.body;
         if(!username||!password||!email) return res.status(400).json({message:"Missing Parameters"});
 		const existinguser=await User.findOne({username});
+
 		if(!existinguser){
            const encrypted=await bcrypt.hash(password,10);
+		   await User.create({username,password:encrypted,email});
+		   const token=jwt.sign({username},JWT_SECRET)
+		   return res.status(200).json({message:`User ${username} created successfully`,token})
 		}
-		await User.create({username,password,email});
-		const token=jwt.sign({username,encrypted},JWT_SECRET)
-		return res.status(200).json({message:`${username} has been created / Logged in`,token})
+		else{
+			const match=await bcrypt.compare(password,existinguser.password)
+			console.log("Reached here")
+			if(match){
+                const token=jwt.sign({username},JWT_SECRET)
+				console.log("Reached here 2")
+		        return res.status(200).json({message:`User ${username} signed in successfully`,token})
+
+			}
+			else{
+				return res.status(200).json({message:"Wrong username or password"})
+			}
+		}
+		
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
 	}
 })
 
 app.post('/shorten',authmiddleware,async (req,res)=>{
+	let idemopotency;
 try {
 	const username=req.user.username;
-	const {original_url,creator}=req.body;
-	let shortcode=generatelogic()
+	const {original_url,choice}=req.body;
+	let shortcode;
+	if(choice){
+        const existingcode=await Surl.findOne({choice})
+		if(existingcode) return res.status(409).json({message:`The typed shortcode is already taken`})
+		shortcode=choice
+	}
+	else{
+		shortcode=generatelogic()
+	}
+
     await Surl.create({original_url,shortcode,creator:username});
 	return res.status(200).json({message:'Short Url created'});
 } catch (error) {
@@ -133,11 +193,19 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
 	try {
 	const username=req.user.username;
     const shortcode=req.params.shortcode;
-	const existing=await User.findOne({shortcode})
+	const existing=await Surl.findOne({shortcode})
+	console.log(shortcode,existing)
 	if(!existing) return res.status(404).json({message:"Link not found in database"})
 	res.redirect(existing.original_url)
 	} catch (error) {
 		return res.status(500).json({message:'Internal Server Error',error})
 	}
+});
+
+
+app.use((req,res)=>{
+  return res.status(404).json({message:"Page Not Found"})
 })
+
+
 startapp();
