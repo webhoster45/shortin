@@ -15,11 +15,15 @@ const jwt=require("jsonwebtoken");
 const { resolveSoa } = require('dns');
 const activeclients=[];
 
-const allowedevents=new Set(['cacheresults','registerorlogin','clicks','expirytime'])
+const allowedevents=new Set(['cacheresults','registerorlogin','clicks','expirytime','shortcodes'])
 
 const keys={
 	coderecord:'Short Code records: ',
-	cache:'Cache Redirect Results: '
+	cache:'Cache Redirect Results: ',
+	getin:'Register or logins: ',
+	clicks:"Total clicks: ",
+	activeusers:'Total Active Users',
+	expirytime:"Expiry Time: "
 }
 
 const Userschema=mongoose.Schema({
@@ -65,6 +69,10 @@ function requireredis(req,res,next){
 	return res.status(503).json({message:'Redis is unavaliable'})
 }
 
+function activitykey(){
+	return `Activity: ${Date.now()}`
+}
+
 async function claimevent(eventid,username){
    try {
 	   if(!eventid) return null;
@@ -86,8 +94,16 @@ async function claimevent(eventid,username){
    }
 }
 
-async function recordmetrics({eventtype,username,user:user._id,query}){
+async function recordmetrics({eventtype,username,userid,query}){
+const activity=`${username} ${eventtype} : ${query}`;
 
+await Promise.all()
+redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)});
+redispublisher.sAdd(activitykey(),activity);
+redispublisher.zIncrBy(keys.coderecord,1,query);
+redispublisher.zIncrBy(keys.cache,1,query);
+redispublisher.incr(keys.clicks);
+redispublisher.incr(keys.getin);
 }
 
 
@@ -116,13 +132,13 @@ const authmiddleware=async (req,res,next)=>{
 async function startapp(){
 	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
 	await Promise.all([
-		// redispublisher.connect(),
-		// redissubscriber.connect(),
+		redispublisher.connect(),
+		redissubscriber.connect(),
 		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
 	]);
-	// await redissubscriber.subscribe('notifications',(message)=>{
-	// 	for (const client of activeclients) client.write(`data:${message}\n\n`)
-	// })
+	await redissubscriber.subscribe('notifications',(message)=>{
+		for (const client of activeclients) client.write(`data:${message}\n\n`)
+	})
     app.listen(port, () => {
 	console.log(`Shortin is running at Port: ${port}`);
 });
@@ -215,6 +231,29 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
 	}
 });
 
+app.get('/stream',async (req,res)=>{
+	try {
+		res.writeHead(200,{
+			'Content-Type':'text/event-stream',
+			'Cache-Control':'no-cache , no transform',
+			connection:'keep-alive',
+		    'Access-control-allow-origin':'*'
+		}
+
+	)
+	res.write(' :connected\n\n')
+
+	activeclients.add(res);
+	const heartbeat=setInterval(()=>{res.write(': heartbeat\n\n'),30000});
+	req.on('close',()=>{
+		clearInterval(heartbeat);
+		activeclients.delete(res)
+	})
+	} catch (error) {
+		return res.status(500).json({message:"Internal Server Error",error})
+	}
+})
+
 app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 	let idempotencykey;
   try {
@@ -227,14 +266,49 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     
 	const eventid=req.get('Idempotency-Key');
 	idempotencykey=await claimevent(eventid,username);
-	const event=await Event.create({eventtype,username,user:user._id,query})
-    await recordmetrics({eventtype,username,user:user._id,query})
-
-
+	const event=await Event.create({eventtype,username,userid:user._id,query})
+    await recordmetrics({eventtype,username,userid:user._id,query})
+    if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{Ex: 86400})
+    
+	await redispublisher.publish('notifications',JSON.stringify({id:user._id,username,event,query,metadata,createdAt:event.createdAt}));
+	return res.status(201).json({message:`${username}: ${eventtype} registered sucessfully`});
   } catch (error) {
+	if(idempotencykey)await redispublisher.del(idempotencykey).catch(()=>{})
 	return res.status(500).json({message:'Internal Server Error',error})
   }
+});
+
+app.get('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
+	try {
+// 		redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)});
+// redispublisher.sAdd(`Activity: ${Date.now()}`,activity);
+// redispublisher.zIncrBy(keys.coderecord,1,query);
+// redispublisher.zIncrBy(keys.cache,1,query);
+// redispublisher.incr(keys.clicks);
+// redispublisher.incr(keys.getin);
+const [	coderecord,cache,getin,clicks,activity,expirytime ]=await Promise.all([
+	redispublisher.zRangeWithScores(keys.coderecord,0,-1),
+	redispublisher.zRangeWithScores(keys.cache,0,-1),
+	redispublisher.getCount(keys.getin),
+	redispublisher.getCount(keys.clicks),
+	redispublisher.sMembers(activitykey()),
+])
+
+const recentactiveusers=await redispublisher.zRangeByScore(keys.activeusers,Date.now-300000,'+inf');
+return res.status(200).json({
+	coderecord,
+	cache,
+	getin,
+	activeusers,
+	activity,
+	clicks,
+    activeusersnow:[new Set(...recentactiveusers)]
 })
+	} catch (error) {
+		return res.status(500).json({message:"Internal Server Error",error})
+	}
+})
+
 
 app.use((req,res)=>{
   return res.status(404).json({message:"Page Not Found"})
