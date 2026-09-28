@@ -10,6 +10,9 @@ Cache redirect results
 Add analytics dashboard
 Add rate limiting
 Important Redis commands:
+// Sets keys.coderecord to self-destruct in 1 hour (3600 seconds)
+await redispublisher.expire(keys.coderecord, 3600);
+
 
 SET
 GET

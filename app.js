@@ -42,13 +42,14 @@ const Surlschema=mongoose.Schema({
 const Eventschema=mongoose.Schema({
 	eventtype:{type:String,required:true},
 	username:{type:String,required:true},
-	user:{type:String,required:true},
+	userid:{type:String,required:true},
 	query:{type:String,required:true}
 },{timestamps:true});
 
 //	const event=await Event.create({eventtype,username,user:user._id,query})
 const Surl=mongoose.model('Surl',Surlschema);
 const User=mongoose.model('User',Userschema);
+const Event=mongoose.model('Event',Eventschema)
 
 //----------------------------Comment this part when you want to start testing without redis-------
 
@@ -65,7 +66,7 @@ for(const client of [redispublisher,redissubscriber]){
 }
 
 function requireredis(req,res,next){
-	if (redispublisher.isReady||redissubscriber.isReady) next();
+	if (redispublisher.isReady&&redissubscriber.isReady) return next();
 	return res.status(503).json({message:'Redis is unavaliable'})
 }
 
@@ -95,15 +96,20 @@ async function claimevent(eventid,username){
 }
 
 async function recordmetrics({eventtype,username,userid,query}){
-const activity=`${username} ${eventtype} : ${query}`;
+try {
+	const activity=`${username} ${eventtype} : ${query}`;
 
-await Promise.all()
-redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)});
-redispublisher.sAdd(activitykey(),activity);
-redispublisher.zIncrBy(keys.coderecord,1,query);
-redispublisher.zIncrBy(keys.cache,1,query);
-redispublisher.incr(keys.clicks);
-redispublisher.incr(keys.getin);
+await Promise.all([redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
+redispublisher.sAdd(activitykey(),activity),
+redispublisher.zIncrBy(keys.coderecord,1,query),
+redispublisher.zIncrBy(keys.cache,1,query),
+redispublisher.incr(keys.clicks),
+redispublisher.incr(keys.getin)])
+
+
+} catch (error) {
+	return res.status(500).json({message:"Internal Server Error",error})
+}
 }
 
 
@@ -113,14 +119,18 @@ redispublisher.incr(keys.getin);
 const authmiddleware=async (req,res,next)=>{
 	try {
 		const authheader=req.headers.authorization;
+
 		if(!authheader) return res.status(401).json({message:"Unauthorized"});
+
 		const token=authheader.split(" ")[1];
-		
+
 		if(!token) return res.status(401).json({message:"Unauthorized"})
+	
 		jwt.verify(token,JWT_SECRET,(err,decoded)=>{
 			if(err) return res.status(401).json({message:"Unauthorized"})
 			req.user=decoded;
- 			next();            
+	         console.log(decoded)
+ 			next();
 		})
 
 	} catch (error) {
@@ -190,7 +200,7 @@ app.post('/registerorlogin',async (req,res)=>{
 				return res.status(200).json({message:"Wrong username or password"})
 			}
 		}
-		
+
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
 	}
@@ -218,18 +228,6 @@ try {
 });
 
 
-app.post('/:shortcode',authmiddleware,async (req,res)=>{
-	try {
-	const username=req.user.username;
-    const shortcode=req.params.shortcode;
-	const existing=await Surl.findOne({shortcode})
-	console.log(shortcode,existing)
-	if(!existing) return res.status(404).json({message:"Link not found in database"})
-	res.redirect(existing.original_url)
-	} catch (error) {
-		return res.status(500).json({message:'Internal Server Error',error})
-	}
-});
 
 app.get('/stream',async (req,res)=>{
 	try {
@@ -261,15 +259,21 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 	if(!eventtype||!metadata||!query) return res.status(400).json({message:"Incomplete parameters"});
     if(!allowedevents.has(eventtype)) return res.status(400).json({message:`${eventtype} not supported`});
     const username=req.user.username;
-	const user=User.findOne({username}).select("_id username")
-	if(!user) return res.status(400).json({message:"User doesn't exist"});
+
+	const user=await User.findOne({username}).select("_id username")
     
+	if(!user) return res.status(400).json({message:"User doesn't exist"});
+
 	const eventid=req.get('Idempotency-Key');
 	idempotencykey=await claimevent(eventid,username);
+
+
 	const event=await Event.create({eventtype,username,userid:user._id,query})
+
     await recordmetrics({eventtype,username,userid:user._id,query})
+
     if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{Ex: 86400})
-    
+
 	await redispublisher.publish('notifications',JSON.stringify({id:user._id,username,event,query,metadata,createdAt:event.createdAt}));
 	return res.status(201).json({message:`${username}: ${eventtype} registered sucessfully`});
   } catch (error) {
@@ -280,19 +284,15 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 
 app.get('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 	try {
-// 		redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)});
-// redispublisher.sAdd(`Activity: ${Date.now()}`,activity);
-// redispublisher.zIncrBy(keys.coderecord,1,query);
-// redispublisher.zIncrBy(keys.cache,1,query);
-// redispublisher.incr(keys.clicks);
-// redispublisher.incr(keys.getin);
+		console.log("reached lolo")
 const [	coderecord,cache,getin,clicks,activity,expirytime ]=await Promise.all([
 	redispublisher.zRangeWithScores(keys.coderecord,0,-1),
 	redispublisher.zRangeWithScores(keys.cache,0,-1),
-	redispublisher.getCount(keys.getin),
-	redispublisher.getCount(keys.clicks),
+	redispublisher.get(keys.getin),
+	redispublisher.get(keys.clicks),
 	redispublisher.sMembers(activitykey()),
 ])
+
 
 const recentactiveusers=await redispublisher.zRangeByScore(keys.activeusers,Date.now-300000,'+inf');
 return res.status(200).json({
@@ -308,6 +308,19 @@ return res.status(200).json({
 		return res.status(500).json({message:"Internal Server Error",error})
 	}
 })
+
+app.post('/:shortcode',authmiddleware,async (req,res)=>{
+	try {
+	const username=req.user.username;
+    const shortcode=req.params.shortcode;
+	const existing=await Surl.findOne({shortcode})
+	console.log(shortcode,existing)
+	if(!existing) return res.status(404).json({message:"Link not found in database"})
+	res.redirect(existing.original_url)
+	} catch (error) {
+		return res.status(500).json({message:'Internal Server Error',error})
+	}
+});
 
 
 app.use((req,res)=>{
