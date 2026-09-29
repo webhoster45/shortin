@@ -15,7 +15,7 @@ const jwt=require("jsonwebtoken");
 const { resolveSoa } = require('dns');
 const activeclients=[];
 
-const allowedevents=new Set(['cacheresults','registerorlogin','clicks','expirytime','shortcodes'])
+const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
 
 const keys={
 	coderecord:'Short Code records: ',
@@ -23,7 +23,7 @@ const keys={
 	getin:'Register or logins: ',
 	clicks:"Total clicks: ",
 	activeusers:'Total Active Users',
-	expirytime:"Expiry Time: "
+
 }
 
 const Userschema=mongoose.Schema({
@@ -71,7 +71,7 @@ function requireredis(req,res,next){
 }
 
 function activitykey(){
-	return `Activity: ${Date.now()}`
+	return `Activity: ${new Date().toISOString().split('T')[0]}`
 }
 
 async function claimevent(eventid,username){
@@ -95,20 +95,25 @@ async function claimevent(eventid,username){
    }
 }
 
-async function recordmetrics({eventtype,username,userid,query}){
+async function recordmetrics({shortcodeid,eventtype,username,userid,query,cache}){
 try {
 	const activity=`${username} ${eventtype} : ${query}`;
+    const shortcoderecordkey=`${keys.coderecord}${shortcodeid}`;
+	const redirectcachekey=`${keys.cache}${shortcodeid}`;
 
-await Promise.all([redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
-redispublisher.sAdd(activitykey(),activity),
-redispublisher.zIncrBy(keys.coderecord,1,query),
-redispublisher.zIncrBy(keys.cache,1,query),
-redispublisher.incr(keys.clicks),
-redispublisher.incr(keys.getin)])
+
+    await Promise.all([
+	redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
+    redispublisher.sAdd(activitykey(),activity),
+    redispublisher.zIncrBy(keys.clicks,1,String(shortcodeid)),
+	redispublisher.set(shortcoderecordkey,String(shortcodeid),{EX:7200}),
+    cache ? redispublisher.set(redirectcachekey,cache,{EX: 7200}): Promise.resolve()
+])
+
 
 
 } catch (error) {
-	return res.status(500).json({message:"Internal Server Error",error})
+	console.log({message:"Internal Server Error",error})
 }
 }
 
@@ -209,15 +214,16 @@ app.post('/registerorlogin',async (req,res)=>{
 app.post('/shorten',authmiddleware,async (req,res)=>{
 try {
 	const username=req.user.username;
-	const {original_url,choice}=req.body;
+	const {original_url,choice,domainname}=req.body;
 	let shortcode;
+	shortcode+=domainname;
 	if(choice){
         const existingcode=await Surl.findOne({choice})
 		if(existingcode) return res.status(409).json({message:`The typed shortcode is already taken`})
-		shortcode=choice
+		shortcode+=choice
 	}
 	else{
-		shortcode=generatelogic()
+		shortcode+=generatelogic()
 	}
 
     await Surl.create({original_url,shortcode,creator:username});
@@ -255,26 +261,27 @@ app.get('/stream',async (req,res)=>{
 app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 	let idempotencykey;
   try {
-	const {eventtype,metadata,query}=req.body;
-	if(!eventtype||!metadata||!query) return res.status(400).json({message:"Incomplete parameters"});
+	const {eventtype,shortcode,query,cache}=req.body;
+	if(!eventtype||!shortcode||!query) return res.status(400).json({message:"Incomplete parameters"});
     if(!allowedevents.has(eventtype)) return res.status(400).json({message:`${eventtype} not supported`});
     const username=req.user.username;
-
-	const user=await User.findOne({username}).select("_id username")
     
+	const user=await User.findOne({username}).select("_id username")
+    const shortcodeid=await Surl.findOne({shortcode});
+    if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
 	if(!user) return res.status(400).json({message:"User doesn't exist"});
 
 	const eventid=req.get('Idempotency-Key');
 	idempotencykey=await claimevent(eventid,username);
 
-
+    
 	const event=await Event.create({eventtype,username,userid:user._id,query})
 
-    await recordmetrics({eventtype,username,userid:user._id,query})
+    await recordmetrics({shortcodeid,eventtype,username,userid:user._id,query,cache})
 
     if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{Ex: 86400})
 
-	await redispublisher.publish('notifications',JSON.stringify({id:user._id,username,event,query,metadata,createdAt:event.createdAt}));
+	await redispublisher.publish('notifications',JSON.stringify({shortcodeid,eventtype,username,userid:user._id,query,cache,createdAt:event.createdAt}));
 	return res.status(201).json({message:`${username}: ${eventtype} registered sucessfully`});
   } catch (error) {
 	if(idempotencykey)await redispublisher.del(idempotencykey).catch(()=>{})
@@ -282,27 +289,30 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
   }
 });
 
-app.get('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
+app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 	try {
 		console.log("reached lolo")
-const [	coderecord,cache,getin,clicks,activity,expirytime ]=await Promise.all([
-	redispublisher.zRangeWithScores(keys.coderecord,0,-1),
-	redispublisher.zRangeWithScores(keys.cache,0,-1),
-	redispublisher.get(keys.getin),
-	redispublisher.get(keys.clicks),
-	redispublisher.sMembers(activitykey()),
+        const {shortcode}=req.body;
+		const shortcodedoc=await Surl.findOne({shortcode}).select("_id")
+
+		if(!shortcodedoc) return res.status(404).json({message:"Shortcode not Found"})
+
+const [activity,clicks,cachepayload,recentactiveusers]=await Promise.all([
+  redispublisher.sMembers(activitykey()),
+  redispublisher.zRangeWithScores(keys.clicks,0,-1,{REV:true}),
+  redispublisher.get(`${keys.cache}${shortcodedoc._id}`),
+//   redispublisher.zRangeByScore(keys.activeusers,Date.now()-300000,"+inf"),
 ])
 
 
-const recentactiveusers=await redispublisher.zRangeByScore(keys.activeusers,Date.now-300000,'+inf');
+console.log("Reached here 4 lolo")
+// const uniqueactivityusers= Array.from(new Set(recentactiveusers))
+console.log("Reached here 5 lolo")
 return res.status(200).json({
-	coderecord,
-	cache,
-	getin,
-	activeusers,
 	activity,
 	clicks,
-    activeusersnow:[new Set(...recentactiveusers)]
+	cache:cachepayload,
+    // activeusersnow:recentactiveusers
 })
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
@@ -311,6 +321,7 @@ return res.status(200).json({
 
 app.post('/:shortcode',authmiddleware,async (req,res)=>{
 	try {
+	
 	const username=req.user.username;
     const shortcode=req.params.shortcode;
 	const existing=await Surl.findOne({shortcode})
