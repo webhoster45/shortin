@@ -100,12 +100,13 @@ try {
 	const activity=`${username} ${eventtype} : ${query}`;
     const shortcoderecordkey=`${keys.coderecord}${shortcodeid}`;
 	const redirectcachekey=`${keys.cache}${shortcodeid}`;
-
+    console.log(shortcodeid)
 
     await Promise.all([
 	redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
     redispublisher.sAdd(activitykey(),activity),
-    redispublisher.zIncrBy(keys.clicks,1,String(shortcodeid)),
+// When a link is clicked, increment its position on the leaderboard:
+    redispublisher.zIncrBy(keys.clicks, 1, shortcodeid),
 	redispublisher.set(shortcoderecordkey,String(shortcodeid),{EX:7200}),
     cache ? redispublisher.set(redirectcachekey,cache,{EX: 7200}): Promise.resolve()
 ])
@@ -267,8 +268,13 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     const username=req.user.username;
     
 	const user=await User.findOne({username}).select("_id username")
-    const shortcodeid=await Surl.findOne({shortcode});
+    let shortcodeid=await Surl.findOne({ shortcode });
+
+	console.log(shortcodeid)
     if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
+	console.log(shortcodeid)
+	shortcodeid = shortcodeid._id.toString();
+	console.log("reached here") 
 	if(!user) return res.status(400).json({message:"User doesn't exist"});
 
 	const eventid=req.get('Idempotency-Key');
@@ -297,12 +303,49 @@ app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 
 		if(!shortcodedoc) return res.status(404).json({message:"Shortcode not Found"})
 
-const [activity,clicks,cachepayload,recentactiveusers]=await Promise.all([
-  redispublisher.sMembers(activitykey()),
-  redispublisher.zRangeWithScores(keys.clicks,0,-1,{REV:true}),
-  redispublisher.get(`${keys.cache}${shortcodedoc._id}`),
-//   redispublisher.zRangeByScore(keys.activeusers,Date.now()-300000,"+inf"),
-])
+		const targetIdStr = shortcodedoc._id.toString();
+
+		// FIX: Make sure this key matches exactly what you use when you call redispublisher.set()
+		// For example, if you cache by shortcode name: `cache:${shortcode}` 
+		// Or if you cache by document ID: `cache:${targetIdStr}`
+		const redirectcachekey = `${keys.cache}${targetIdStr}`; 
+
+let activity, clicks, cachepayload, recentactiveusers;
+
+		try {
+			console.log("Checking activitykey()...");
+			const actKey = activitykey();
+			console.log(`Executing sMembers with key: ${actKey}`);
+			activity = await redispublisher.sMembers(actKey);
+		} catch (e) {
+			console.error("❌ CRASHED AT sMembers! Error details:", e.message);
+			throw new Error(`sMembers failed: ${e.message}`);
+		}
+
+		try {
+			console.log(`Executing zRange for clicks with key: ${keys?.clicks}`);
+			clicks = await redispublisher.zRange(keys.clicks, 0, -1, { REV: true });
+		} catch (e) {
+			console.error("❌ CRASHED AT zRange Clicks! Error details:", e.message);
+			throw new Error(`zRange Clicks failed: ${e.message}`);
+		}
+
+		try {
+			const cacheKey = `${keys?.cache}${shortcodedoc._id}`;
+			console.log(`Executing get for cache with key: ${cacheKey}`);
+			cachepayload = await redispublisher.get(redirectcachekey);
+		} catch (e) {
+			console.error("❌ CRASHED AT cache get! Error details:", e.message);
+			throw new Error(`Cache get failed: ${e.message}`);
+		}
+
+		try {
+			console.log(`Executing zRange for active users with key: ${keys?.activeusers}`);
+			recentactiveusers = await redispublisher.zRange(keys.activeusers, Date.now() - 300000, "+inf", { BY: 'SCORE' });
+		} catch (e) {
+			console.error("❌ CRASHED AT zRange Active Users! Error details:", e.message);
+			throw new Error(`Active Users zRange failed: ${e.message}`);
+		}
 
 
 console.log("Reached here 4 lolo")
@@ -329,6 +372,7 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
 	if(!existing) return res.status(404).json({message:"Link not found in database"})
 	res.redirect(existing.original_url)
 	} catch (error) {
+		console.log(error)
 		return res.status(500).json({message:'Internal Server Error',error})
 	}
 });
