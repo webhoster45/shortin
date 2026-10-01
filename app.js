@@ -36,7 +36,7 @@ const Surlschema=mongoose.Schema({
     original_url:{type:String,required:true},
     shortcode:{type:String,required:true},
 	creator:{type:String,required:true},
-	clickcount:{type:Number,default:0}
+	expiry:{type:String,required:true}
 },{timestamps:true})
 
 const Eventschema=mongoose.Schema({
@@ -95,12 +95,13 @@ async function claimevent(eventid,username){
    }
 }
 
-async function recordmetrics({shortcodeid,eventtype,username,userid,query,cache}){
+async function recordmetrics({shortcodeid,eventtype,username,userid,query,cache,author}){
 try {
 	const activity=`${username} ${eventtype} : ${query}`;
     const shortcoderecordkey=`${keys.coderecord}${shortcodeid}`;
-	const redirectcachekey=`${keys.cache}${shortcodeid}`;
+	const redirectcachekey=`${keys.cache}${shortcodeid}${author}`;
     console.log(shortcodeid)
+    console.log(cache)
 
     await Promise.all([
 	redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
@@ -216,19 +217,23 @@ app.post('/shorten',authmiddleware,async (req,res)=>{
 try {
 	const username=req.user.username;
 	const {original_url,choice,domainname}=req.body;
-	let shortcode;
+	if(!original_url||!domainname) return res.status(400).json({message:"Missing parameters"})
+	let shortcode="";
 	shortcode+=domainname;
+	const expirydate=new Date(Date.now()+7200*1000).toLocaleString()
 	if(choice){
-        const existingcode=await Surl.findOne({choice})
+		let checker=shortcode+choice
+        const existingcode=await Surl.findOne({shortcode:checker})
 		if(existingcode) return res.status(409).json({message:`The typed shortcode is already taken`})
 		shortcode+=choice
 	}
+
 	else{
 		shortcode+=generatelogic()
 	}
 
-    await Surl.create({original_url,shortcode,creator:username});
-	return res.status(200).json({message:'Short Url created'});
+    await Surl.create({original_url,shortcode,creator:username,expiry:expirydate});
+	return res.status(200).json({message:'Short Url created',shortcode,expiry:expirydate});
 } catch (error) {
 	return res.status(500).json({message:"Internal Server Error",error})
 }
@@ -269,7 +274,8 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     
 	const user=await User.findOne({username}).select("_id username")
     let shortcodeid=await Surl.findOne({ shortcode });
-
+    let author=shortcodeid.creator;
+	if(author!==username) return res.status(403).json({message:"You are not authorized to perform this"})
 	console.log(shortcodeid)
     if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
 	console.log(shortcodeid)
@@ -283,7 +289,7 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     
 	const event=await Event.create({eventtype,username,userid:user._id,query})
 
-    await recordmetrics({shortcodeid,eventtype,username,userid:user._id,query,cache})
+    await recordmetrics({shortcodeid,eventtype,username,userid:user._id,query,cache,author})
 
     if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{Ex: 86400})
 
@@ -299,8 +305,8 @@ app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 	try {
 		console.log("reached lolo")
         const {shortcode}=req.body;
-		const shortcodedoc=await Surl.findOne({shortcode}).select("_id")
-
+		const shortcodedoc=await Surl.findOne({shortcode})
+        const author=shortcodedoc.creator
 		if(!shortcodedoc) return res.status(404).json({message:"Shortcode not Found"})
 
 		const targetIdStr = shortcodedoc._id.toString();
@@ -331,9 +337,11 @@ let activity, clicks, cachepayload, recentactiveusers;
 		}
 
 		try {
-			const cacheKey = `${keys?.cache}${shortcodedoc._id}`;
+			const cacheKey = `${keys.cache}${targetIdStr}${author}`;
+            console.log(cacheKey)
 			console.log(`Executing get for cache with key: ${cacheKey}`);
-			cachepayload = await redispublisher.get(redirectcachekey);
+			cachepayload = await redispublisher.get(cacheKey);
+			console.log(`Cache payload retrieved: ${cachepayload}`)
 		} catch (e) {
 			console.error("❌ CRASHED AT cache get! Error details:", e.message);
 			throw new Error(`Cache get failed: ${e.message}`);
