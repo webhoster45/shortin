@@ -83,15 +83,17 @@ async function claimevent(eventid,username){
 	   throw error;
 	   }
 	   const key=`event: ${username} : ${eventid}`;
-	   const claimed=await redispublisher.set(key,processing,{NX:true,EX:86400});
-	   if(!claimed=='OK'){
+	   const claimed=await redispublisher.set(key,'processing',{NX:true,EX:86400});
+	   if(claimed !=='OK'){
 		const error=new Error("Event already processing");
 		error.status=409;
 		throw error;
 	   }
 	   return key;
    } catch (error) {
-	   console.log("Error")
+		   console.log("Error")
+	throw error
+
    }
 }
 
@@ -99,7 +101,7 @@ async function recordmetrics({shortcodeid,eventtype,username,userid,query,cache,
 try {
 	const activity=`${username} ${eventtype} : ${query}`;
     const shortcoderecordkey=`${keys.coderecord}${shortcodeid}`;
-	const redirectcachekey=`${keys.cache}${shortcodeid}${author}`;
+	const redirectcachekey=`${keys.cache}${shortcodeid}`;
     console.log(shortcodeid)
     console.log(cache)
 
@@ -219,7 +221,7 @@ try {
 	const {original_url,choice,domainname}=req.body;
 	if(!original_url||!domainname) return res.status(400).json({message:"Missing parameters"})
 	let shortcode="";
-	shortcode+=domainname;
+	// shortcode+=domainname;
 	const expirydate=new Date(Date.now()+7200*1000).toLocaleString()
 	if(choice){
 		let checker=shortcode+choice
@@ -231,7 +233,7 @@ try {
 	else{
 		shortcode+=generatelogic()
 	}
-
+    await redispublisher.set(keys.coderecord+shortcode,shortcode,{EX: 7200})
     await Surl.create({original_url,shortcode,creator:username,expiry:expirydate});
 	return res.status(200).json({message:'Short Url created',shortcode,expiry:expirydate});
 } catch (error) {
@@ -254,7 +256,7 @@ app.get('/stream',async (req,res)=>{
 	res.write(' :connected\n\n')
 
 	activeclients.add(res);
-	const heartbeat=setInterval(()=>{res.write(': heartbeat\n\n'),30000});
+	const heartbeat=setInterval(()=>{res.write(': heartbeat\n\n')},30000);
 	req.on('close',()=>{
 		clearInterval(heartbeat);
 		activeclients.delete(res)
@@ -273,11 +275,14 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     const username=req.user.username;
     
 	const user=await User.findOne({username}).select("_id username")
-    let shortcodeid=await Surl.findOne({ shortcode });
-    let author=shortcodeid.creator;
-	if(author!==username) return res.status(403).json({message:"You are not authorized to perform this"})
+    let shortcodeid=await Surl.findOne({shortcode});
 	console.log(shortcodeid)
-    if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
+	    if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
+    let author=shortcodeid.creator;
+	// console.log(author,username)
+	// if(author!==username) return res.status(403).json({message:"You are not authorized to perform this"})
+	console.log(shortcodeid)
+
 	console.log(shortcodeid)
 	shortcodeid = shortcodeid._id.toString();
 	console.log("reached here") 
@@ -291,7 +296,7 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 
     await recordmetrics({shortcodeid,eventtype,username,userid:user._id,query,cache,author})
 
-    if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{Ex: 86400})
+    if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{EX: 86400})
 
 	await redispublisher.publish('notifications',JSON.stringify({shortcodeid,eventtype,username,userid:user._id,query,cache,createdAt:event.createdAt}));
 	return res.status(201).json({message:`${username}: ${eventtype} registered sucessfully`});
@@ -337,11 +342,11 @@ let activity, clicks, cachepayload, recentactiveusers;
 		}
 
 		try {
-			const cacheKey = `${keys.cache}${targetIdStr}${author}`;
+			const cacheKey = `${keys.cache}${targetIdStr}`;
             console.log(cacheKey)
 			console.log(`Executing get for cache with key: ${cacheKey}`);
 			cachepayload = await redispublisher.get(cacheKey);
-			console.log(`Cache payload retrieved: ${cachepayload}`)
+			console.log(`Cache payload retrieved: ${cachepayload}, Id for shortcode : ${targetIdStr}`)
 		} catch (e) {
 			console.error("❌ CRASHED AT cache get! Error details:", e.message);
 			throw new Error(`Cache get failed: ${e.message}`);
@@ -354,7 +359,11 @@ let activity, clicks, cachepayload, recentactiveusers;
 			console.error("❌ CRASHED AT zRange Active Users! Error details:", e.message);
 			throw new Error(`Active Users zRange failed: ${e.message}`);
 		}
-
+        try {
+			coderecord=await redispublisher.get(keys.coderecord+shortcode)
+		} catch (e) {
+			console.error(e.message)
+		}
 
 console.log("Reached here 4 lolo")
 // const uniqueactivityusers= Array.from(new Set(recentactiveusers))
@@ -362,7 +371,8 @@ console.log("Reached here 5 lolo")
 return res.status(200).json({
 	activity,
 	clicks,
-	cache:cachepayload,
+	cachepayload,
+	coderecord
     // activeusersnow:recentactiveusers
 })
 	} catch (error) {
@@ -375,9 +385,18 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
 	
 	const username=req.user.username;
     const shortcode=req.params.shortcode;
-	const existing=await Surl.findOne({shortcode})
+	const existing=await Surl.findOne({shortcode});
+
+	const existinginredis=await redispublisher.get(keys.coderecord+shortcode);
+	console.log(existinginredis)
+	if(!existinginredis){
+		const toshow=await Surl.findOneAndDelete({shortcode})
+		return res.status(400).json({message:"Expired shortcode"})
+	}
+
 	console.log(shortcode,existing)
 	if(!existing) return res.status(404).json({message:"Link not found in database"})
+		return res.status(200).json({message:existing.original_url})
 	res.redirect(existing.original_url)
 	} catch (error) {
 		console.log(error)
