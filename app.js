@@ -14,6 +14,7 @@ const JWT_SECRET=process.env.JWT_SECERT;
 const jwt=require("jsonwebtoken");
 const { resolveSoa } = require('dns');
 const activeclients=[];
+const path=require('path');
 
 const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
 
@@ -23,7 +24,7 @@ const keys={
 	getin:'Register or logins: ',
 	clicks:"Total clicks: ",
 	activeusers:'Total Active Users',
-
+    clickcount:"Click count "
 }
 
 const Userschema=mongoose.Schema({
@@ -74,6 +75,12 @@ function activitykey(){
 	return `Activity: ${new Date().toISOString().split('T')[0]}`
 }
 
+app.use(express.json());
+app.use(express.urlencoded({extended:true}))
+app.use(express.static('/public'));
+app.set('view engine','ejs')
+app.set('views',path.join(__dirname,views))
+
 async function claimevent(eventid,username){
    try {
 	   if(!eventid) return null;
@@ -111,6 +118,7 @@ try {
 // When a link is clicked, increment its position on the leaderboard:
     redispublisher.zIncrBy(keys.clicks, 1, shortcodeid),
 	redispublisher.set(shortcoderecordkey,String(shortcodeid),{EX:7200}),
+	redispublisher.incr(keys.clickcount+shortcodeid,1),
     cache ? redispublisher.set(redirectcachekey,cache,{EX: 7200}): Promise.resolve()
 ])
 
@@ -148,20 +156,6 @@ const authmiddleware=async (req,res,next)=>{
 	}
 }
 
-async function startapp(){
-	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
-	await Promise.all([
-		redispublisher.connect(),
-		redissubscriber.connect(),
-		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
-	]);
-	await redissubscriber.subscribe('notifications',(message)=>{
-		for (const client of activeclients) client.write(`data:${message}\n\n`)
-	})
-    app.listen(port, () => {
-	console.log(`Shortin is running at Port: ${port}`);
-});
-}
 
 
 
@@ -320,8 +314,9 @@ app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 		// For example, if you cache by shortcode name: `cache:${shortcode}` 
 		// Or if you cache by document ID: `cache:${targetIdStr}`
 		const redirectcachekey = `${keys.cache}${targetIdStr}`; 
+		const clickcountskey=`${keys.clickcount}${targetIdStr}`;
 
-let activity, clicks, cachepayload, recentactiveusers;
+let activity, clicks, cachepayload, recentactiveusers,clickcounts;
 
 		try {
 			console.log("Checking activitykey()...");
@@ -364,7 +359,11 @@ let activity, clicks, cachepayload, recentactiveusers;
 		} catch (e) {
 			console.error(e.message)
 		}
-
+        try {
+			clickcounts=await redispublisher.get(keys.clickcount+targetIdStr)
+		} catch (e) {
+			console.error(e.message)
+		}
 console.log("Reached here 4 lolo")
 // const uniqueactivityusers= Array.from(new Set(recentactiveusers))
 console.log("Reached here 5 lolo")
@@ -372,8 +371,8 @@ return res.status(200).json({
 	activity,
 	clicks,
 	cachepayload,
-	coderecord
-    // activeusersnow:recentactiveusers
+	clickcounts,
+    activeusersnow:recentactiveusers
 })
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
@@ -387,16 +386,15 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
     const shortcode=req.params.shortcode;
 	const existing=await Surl.findOne({shortcode});
 
-	const existinginredis=await redispublisher.get(keys.coderecord+shortcode);
+	const existinginredis=await redispublisher.get(shortcode);
 	console.log(existinginredis)
 	if(!existinginredis){
 		const toshow=await Surl.findOneAndDelete({shortcode})
 		return res.status(400).json({message:"Expired shortcode"})
 	}
-
+	console.log(toshow)
 	console.log(shortcode,existing)
 	if(!existing) return res.status(404).json({message:"Link not found in database"})
-		return res.status(200).json({message:existing.original_url})
 	res.redirect(existing.original_url)
 	} catch (error) {
 		console.log(error)
@@ -408,6 +406,22 @@ app.post('/:shortcode',authmiddleware,async (req,res)=>{
 app.use((req,res)=>{
   return res.status(404).json({message:"Page Not Found"})
 })
+
+
+async function startapp(){
+	if(!MONGODB_URL || !JWT_SECRET) { console.log('MONGODB_URL AND JWT_SECRET ARE REQUIRED'); return;}
+	await Promise.all([
+		redispublisher.connect(),
+		redissubscriber.connect(),
+		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
+	]);
+	await redissubscriber.subscribe('notifications',(message)=>{
+		for (const client of activeclients) client.write(`data:${message}\n\n`)
+	})
+    app.listen(port, () => {
+	console.log(`Shortin is running at Port: ${port}`);
+});
+}
 
 
 startapp();
