@@ -14,7 +14,7 @@ const JWT_SECRET=process.env.JWT_SECERT;
 const jwt=require("jsonwebtoken");
 const { resolveSoa } = require('dns');
 const activeclients=[];
-const path=require('path');
+
 
 const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
 
@@ -79,7 +79,7 @@ app.use(express.json());
 app.use(express.urlencoded({extended:true}))
 app.use(express.static('/public'));
 app.set('view engine','ejs')
-app.set('views',path.join(__dirname,views))
+app.set('views',path.join(__dirname,'views'))
 
 async function claimevent(eventid,username){
    try {
@@ -175,8 +175,17 @@ app.use('/public', express.static(path.join(__dirname, 'public')));
 
 
 app.get('/', (req, res) => {
-	res.sendFile(path.join(__dirname, 'code.html'));
+	res.render('index')
 });
+
+app.get('/registerorlogin', (req, res) => {
+	res.render('login')
+});
+
+app.get('/dashboard', (req, res) => {
+	res.render('dashboard')
+});
+
 
 app.post('/registerorlogin',async (req,res)=>{
 	try {
