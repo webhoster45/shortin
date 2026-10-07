@@ -4,6 +4,26 @@
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
   <title>Shortin - Redis Edge URL Shortener</title>
+  <script>
+    async function loaddashboard(){
+      const token =localStorage.getItem('shortin_token');
+
+      const response=fetch(`/api/getuser`,{method:'GET',
+        headers: {
+          'Authorization':`Bearer ${token}`
+        }
+      })
+
+      if(!response.ok){
+        localStorage.removeItem('shortin_token');
+        window.location.replace('/registerorlogin');
+      }
+      else{
+        const data=await response.json();
+        console.log("Welcome to your dashboard",data.username)
+      }
+    }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <script id="tailwind-config">

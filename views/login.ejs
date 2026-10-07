@@ -235,7 +235,10 @@ if (token) {
         if (data.token) {
           localStorage.setItem('shortin_token', data.token);
         }
-
+        
+        if(data.name){
+          localStorage.setItem('username',data.username)
+        }
         window.location.href='/dashboard'
 
       } catch (err) {

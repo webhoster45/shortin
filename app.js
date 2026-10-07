@@ -182,9 +182,15 @@ app.get('/registerorlogin', (req, res) => {
 	res.render('login')
 });
 
-app.get('/dashboard', (req, res) => {
-	res.render('dashboard')
+app.get('/dashboard', async (req, res) => {
+	try {
+		res.render('dashboard')
+	} catch (error) {
+			return res.status(500).json({message:"Internal Server Error",error})
+	
+	}
 });
+
 
 
 app.post('/registerorlogin',async (req,res)=>{
@@ -205,7 +211,7 @@ app.post('/registerorlogin',async (req,res)=>{
 			if(match){
                 const token=jwt.sign({username},JWT_SECRET)
 				console.log("Reached here 2")
-		        return res.status(200).json({message:`User ${username} signed in successfully`,token})
+		        return res.status(200).json({message:`User ${username} signed in successfully`,token,username})
 
 			}
 			else{
@@ -215,6 +221,15 @@ app.post('/registerorlogin',async (req,res)=>{
 
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
+	}
+})
+
+app.get('/api/getuser',authmiddleware,async(req,res)=>{
+		try {
+		res.status(200).json({message:"successful",user:req.user})
+	} catch (error) {
+			return res.status(500).json({message:"Internal Server Error",error})
+	
 	}
 })
 
@@ -244,6 +259,16 @@ try {
 }
 });
 
+app.get('/api/getshortcode/:username',authmiddleware,async (req,res)=>{
+		try {
+	 const username=req.params.username
+     const shortcodes=await Surl.find({username});
+	 if(!shortcodes) return res.status(200).json({message:"No Shortcodes for this user"});
+	 res.status(200).json({message:shortcodes})
+	} catch (error) {
+		return res.status(500).json({message:"Internal Server Error",error})
+	}
+})
 
 
 app.get('/stream',async (req,res)=>{
