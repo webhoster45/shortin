@@ -12,6 +12,7 @@ const { Socket } = require('dgram');
 const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECRET=process.env.JWT_SECERT;
 const jwt=require("jsonwebtoken");
+const cookieparser=require('cookie-parser')
 const { resolveSoa } = require('dns');
 const activeclients=[];
 
@@ -135,24 +136,24 @@ try {
 
 const authmiddleware=async (req,res,next)=>{
 	try {
-		const authheader=req.headers.authorization;
+		// const authheader=req.headers.authorization;
 
-		if(!authheader) return res.status(401).json({message:"Unauthorized"});
+		// if(!authheader) return res.status(401).json({message:"Unauthorized"});
 
-		const token=authheader.split(" ")[1];
+		const token=req.cookies.shortin_token;
 
-		if(!token) return res.status(401).json({message:"Unauthorized"})
+
+		if(!token) return res.redirect('/registerorlogin')
 	
 		jwt.verify(token,JWT_SECRET,(err,decoded)=>{
-			if(err) return res.status(401).json({message:"Unauthorized"})
+			if(err) return res.redirect('/registerorlogin')
 			req.user=decoded;
 	         console.log(decoded)
  			next();
 		})
 
 	} catch (error) {
-		console.log("here ooo")
-		return res.status(500).json({message:"Internal Server Error",error})
+      return res.redirect('/registerorlogin')
 	}
 }
 
@@ -182,9 +183,16 @@ app.get('/registerorlogin', (req, res) => {
 	res.render('login')
 });
 
-app.get('/dashboard', async (req, res) => {
+app.get('/dashboard',authmiddleware, async (req, res) => {
 	try {
-		res.render('dashboard')
+		const username=req.user.username;
+		
+		const usershortcodes=await Surl.find({creator:username});
+
+		res.render('dashboard',{
+			username:username,
+			shortcodes: usershortcodes || []
+		})
 	} catch (error) {
 			return res.status(500).json({message:"Internal Server Error",error})
 	
@@ -196,13 +204,20 @@ app.get('/dashboard', async (req, res) => {
 app.post('/registerorlogin',async (req,res)=>{
 	try {
 		const {username,password,email}=req.body;
-        if(!username||!password||!email) return res.status(400).json({message:"Missing Parameters"});
+        if(!username||!password) return res.status(400).json({message:"Missing Parameters"});
 		const existinguser=await User.findOne({username});
 
 		if(!existinguser){
+			if(!email) return res.status(400).send("An email address is required to register a new user")
            const encrypted=await bcrypt.hash(password,10);
 		   await User.create({username,password:encrypted,email});
-		   const token=jwt.sign({username},JWT_SECRET)
+		   const token=jwt.sign({username},JWT_SECRET);
+
+		   res.cookie('shortin_token',token,{
+			httpOnly: true,
+			secure: process.env.NODE_ENV === 'production',
+			maxAge: 7200 * 1000
+		   })
 		   return res.status(200).json({message:`User ${username} created successfully`,token})
 		}
 		else{
@@ -212,7 +227,15 @@ app.post('/registerorlogin',async (req,res)=>{
                 const token=jwt.sign({username},JWT_SECRET)
 				console.log("Reached here 2")
 		        return res.status(200).json({message:`User ${username} signed in successfully`,token,username})
+            
 
+			res.cookie('shortin_token',token,{
+				httpOnly: true,
+				secure: process.env.NODE_ENV === "production",
+				maxAge: 7200 * 1000
+			})
+
+			return res.redirect('/dashboard')
 			}
 			else{
 				return res.status(200).json({message:"Wrong username or password"})
@@ -259,16 +282,16 @@ try {
 }
 });
 
-app.get('/api/getshortcode/:username',authmiddleware,async (req,res)=>{
-		try {
-	 const username=req.params.username
-     const shortcodes=await Surl.find({username});
-	 if(!shortcodes) return res.status(200).json({message:"No Shortcodes for this user"});
-	 res.status(200).json({message:shortcodes})
-	} catch (error) {
-		return res.status(500).json({message:"Internal Server Error",error})
-	}
-})
+// app.get('/api/getshortcode/:username',authmiddleware,async (req,res)=>{
+// 		try {
+// 	 const username=req.params.username
+//      const shortcodes=await Surl.find({username});
+// 	 if(!shortcodes) return res.status(200).json({message:"No Shortcodes for this user"});
+// 	 res.status(200).json({message:shortcodes})
+// 	} catch (error) {
+// 		return res.status(500).json({message:"Internal Server Error",error})
+// 	}
+// })
 
 
 app.get('/stream',async (req,res)=>{

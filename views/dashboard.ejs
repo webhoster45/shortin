@@ -4,26 +4,7 @@
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
   <title>Shortin - Redis Edge URL Shortener</title>
-  <script>
-    async function loaddashboard(){
-      const token =localStorage.getItem('shortin_token');
 
-      const response=fetch(`/api/getuser`,{method:'GET',
-        headers: {
-          'Authorization':`Bearer ${token}`
-        }
-      })
-
-      if(!response.ok){
-        localStorage.removeItem('shortin_token');
-        window.location.replace('/registerorlogin');
-      }
-      else{
-        const data=await response.json();
-        console.log("Welcome to your dashboard",data.username)
-      }
-    }
-  </script>
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
   <script src="https://cdn.tailwindcss.com"></script>
   <script id="tailwind-config">
@@ -116,7 +97,7 @@
         <!-- <a class="hidden sm:inline-flex items-center px-4 py-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" href="#">Sign In</a>
         <a class="inline-flex items-center px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-secondary text-on-primary shadow-sm hover:opacity-95 transition-all" href="#">Get Started</a> -->
         <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center ml-1">
-          <span class="material-symbols-outlined text-on-primary text-[18px]">person</span>
+          <span class="material-symbols-outlined text-on-primary text-[18px]">person</span> <%= username %>
         </div>
       </div>
     </div>
@@ -143,10 +124,11 @@
           </p>
         </div>
 
+        <form>x
         <!-- Shortener Form Card -->
         <div class="mt-12 max-w-3xl mx-auto">
           <div class="bg-surface-container-lowest/90 backdrop-blur-xl rounded-2xl shadow-[0_18px_60px_-15px_rgba(70,72,212,0.12)] p-4 sm:p-6 border border-outline-variant/40">
-            <form class="space-y-4" id="shorten-form" onsubmit="event.preventDefault(); triggerShorten();">
+            <form action="/shorten" method="POST" class="space-y-4" id="shorten-form" onsubmit="event.preventDefault();">
               <div class="relative flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-surface-container-low/70 rounded-xl p-1.5 focus-within:ring-2 focus-within:ring-primary/40 transition-all">
                 <div class="flex items-center gap-2 pl-3 py-1 flex-1 min-w-0">
                   <span class="material-symbols-outlined text-primary text-[22px] shrink-0">link</span>
@@ -164,8 +146,7 @@
                     <path class="opacity-75" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" fill="currentColor"></path>
                   </svg>
                 </button>
-              </div>
-
+             
               <!-- Magic Options Trigger -->
               <div class="flex items-center justify-between pt-1">
                 <button class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors text-xs group" onclick="toggleMagicOptions()" type="button">
