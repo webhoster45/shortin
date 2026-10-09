@@ -14,7 +14,7 @@ const JWT_SECRET=process.env.JWT_SECERT;
 const jwt=require("jsonwebtoken");
 const cookieparser=require('cookie-parser')
 const { resolveSoa } = require('dns');
-const activeclients=[];
+const activeclients=new Set();
 
 
 const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
@@ -81,6 +81,7 @@ app.use(express.urlencoded({extended:true}))
 app.use(express.static('/public'));
 app.set('view engine','ejs')
 app.set('views',path.join(__dirname,'views'))
+app.use(cookieparser())
 
 async function claimevent(eventid,username){
    try {
@@ -180,7 +181,8 @@ app.get('/', (req, res) => {
 });
 
 app.get('/registerorlogin', (req, res) => {
-	res.render('login')
+     if(req.cookies.shortin_token) return res.redirect('/dashboard');
+	 res.render('login')
 });
 
 app.get('/dashboard',authmiddleware, async (req, res) => {
@@ -218,7 +220,7 @@ app.post('/registerorlogin',async (req,res)=>{
 			secure: process.env.NODE_ENV === 'production',
 			maxAge: 7200 * 1000
 		   })
-		   return res.status(200).json({message:`User ${username} created successfully`,token})
+		   return res.redirect('/dashboard')
 		}
 		else{
 			const match=await bcrypt.compare(password,existinguser.password)
@@ -226,7 +228,7 @@ app.post('/registerorlogin',async (req,res)=>{
 			if(match){
                 const token=jwt.sign({username},JWT_SECRET)
 				console.log("Reached here 2")
-		        return res.status(200).json({message:`User ${username} signed in successfully`,token,username})
+		        // return res.status(200).json({message:`User ${username} signed in successfully`,token,username})
             
 
 			res.cookie('shortin_token',token,{
@@ -238,7 +240,7 @@ app.post('/registerorlogin',async (req,res)=>{
 			return res.redirect('/dashboard')
 			}
 			else{
-				return res.status(200).json({message:"Wrong username or password"})
+				return res.status(500).json({message:"Wrong username or password"})
 			}
 		}
 
@@ -267,7 +269,7 @@ try {
 	if(choice){
 		let checker=shortcode+choice
         const existingcode=await Surl.findOne({shortcode:checker})
-		if(existingcode) return res.status(409).json({message:`The typed shortcode is already taken`})
+		if(existingcode) return res.status(409).send({message:`The typed shortcode is already taken`})
 		shortcode+=choice
 	}
 
@@ -276,9 +278,9 @@ try {
 	}
     await redispublisher.set(keys.coderecord+shortcode,shortcode,{EX: 7200})
     await Surl.create({original_url,shortcode,creator:username,expiry:expirydate});
-	return res.status(200).json({message:'Short Url created',shortcode,expiry:expirydate});
+	return res.redirect('/dashboard')
 } catch (error) {
-	return res.status(500).json({message:"Internal Server Error",error})
+	return res.status(500).send('error')
 }
 });
 
@@ -436,20 +438,23 @@ return res.status(200).json({
 	}
 })
 
-app.post('/:shortcode',authmiddleware,async (req,res)=>{
+app.get('/:shortcode',authmiddleware,async (req,res)=>{
 	try {
 	
 	const username=req.user.username;
     const shortcode=req.params.shortcode;
 	const existing=await Surl.findOne({shortcode});
 
-	const existinginredis=await redispublisher.get(shortcode);
+	const lookup=keys.coderecord + shortcode
+	const existinginredis=await redispublisher.get(lookup);
 	console.log(existinginredis)
 	if(!existinginredis){
 		const toshow=await Surl.findOneAndDelete({shortcode})
 		return res.status(400).json({message:"Expired shortcode"})
 	}
-	console.log(toshow)
+
+	
+	// console.log(toshow)
 	console.log(shortcode,existing)
 	if(!existing) return res.status(404).json({message:"Link not found in database"})
 	res.redirect(existing.original_url)

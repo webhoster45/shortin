@@ -4,13 +4,13 @@
   <meta charset="utf-8"/>
   <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
   <script>
-    // Check if a token already exists when the login page loads
-const token = localStorage.getItem('shortin_token');
+//     // Check if a token already exists when the login page loads
+// const token = localStorage.getItem('shortin_token');
 
-if (token) {
-  // Option A: Instant client-side redirect
-  window.location.replace('/dashboard'); 
-}
+// if (token) {
+//   // Option A: Instant client-side redirect
+//   window.location.replace('/dashboard'); 
+// }
 
 
   </script>
@@ -123,31 +123,31 @@ if (token) {
         </div>
 
         <!-- Form -->
-        <form id="auth-form" class="space-y-4" onsubmit="handleSubmit(event)">
+        <form method="POST" id="auth-form" class="space-y-4" action="/registerorlogin">
           <!-- Username Field -->
           <div>
-            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5">Username</label>
+            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5" for="username">Username</label>
             <div class="flex items-center rounded-xl bg-surface-container-low px-3 py-2.5 border border-outline-variant/30 focus-within:border-primary transition-all">
               <span class="material-symbols-outlined text-outline text-[20px] mr-2">person</span>
-              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="input-username" placeholder="Enter your username" required type="text"/>
+              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="username" placeholder="Enter your username" name="username" required type="text"/>
             </div>
           </div>
 
           <!-- Email Field -->
           <div>
-            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5">Email Address</label>
+            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5" for="email">Email Address</label>
             <div class="flex items-center rounded-xl bg-surface-container-low px-3 py-2.5 border border-outline-variant/30 focus-within:border-primary transition-all">
               <span class="material-symbols-outlined text-outline text-[20px] mr-2">mail</span>
-              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="input-email" placeholder="you@example.com" required type="email"/>
+              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="email" name="email" placeholder="you@example.com" required type="email"/>
             </div>
           </div>
 
           <!-- Password Field -->
           <div>
-            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5">Password</label>
+            <label class="block font-label-md text-label-md font-semibold text-on-surface mb-1.5" for="password">Password</label>
             <div class="flex items-center rounded-xl bg-surface-container-low px-3 py-2.5 border border-outline-variant/30 focus-within:border-primary transition-all">
               <span class="material-symbols-outlined text-outline text-[20px] mr-2">lock</span>
-              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="input-password" placeholder="••••••••" required type="password"/>
+              <input class="bg-transparent border-none font-body-md text-body-md text-on-surface p-0 focus:outline-none focus:ring-0 flex-1 placeholder:text-outline" id="password" name="password" placeholder="••••••••" required type="password"/>
             </div>
           </div>
 
