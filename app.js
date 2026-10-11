@@ -38,7 +38,7 @@ const Surlschema=mongoose.Schema({
     original_url:{type:String,required:true},
     shortcode:{type:String,required:true},
 	creator:{type:String,required:true},
-	expiry:{type:String,required:true}
+	expiry:{type:String,required:true},
 },{timestamps:true})
 
 const Eventschema=mongoose.Schema({
@@ -75,6 +75,8 @@ function requireredis(req,res,next){
 function activitykey(){
 	return `Activity: ${new Date().toISOString().split('T')[0]}`
 }
+
+
 
 app.use(express.json());
 app.use(express.urlencoded({extended:true}))
@@ -180,22 +182,52 @@ app.get('/', (req, res) => {
 	res.render('index')
 });
 
+
 app.get('/registerorlogin', (req, res) => {
      if(req.cookies.shortin_token) return res.redirect('/dashboard');
 	 res.render('login')
 });
 
+
 app.get('/dashboard',authmiddleware, async (req, res) => {
 	try {
+		// Run this temporarily in your server files once to purge old text formats:
+
+
 		const username=req.user.username;
 		
 		const usershortcodes=await Surl.find({creator:username});
+        const allshortcodes=await Surl.find({});
+		const nowtime=Math.floor(Date.now()/1000);
+		const activeshortcodes=[];
+		const expiredids=[];
 
+		usershortcodes.forEach(s=>{
+			// const [month,day,year,hour,minute,second]=s.expiry.split(/[\s,/:]/).map(Number);
+			const dbtime=Math.floor(Date.UTC(new Date(s.expiry).getTime())/1000)
+
+			if(dbtime<nowtime) expiredids.push(s._id)
+			else activeshortcodes.push(s)
+
+			console.log(`DB Time: ${dbtime} | Now Time : ${nowtime}`)
+		})
+
+
+     
+		if(expiredids.length>0){
+			Surl.deleteMany({_id:{$in: expiredids}})
+			.then(result=>console.log(`Background sweep completd `))
+			.catch(err=>console.error("Error durning sweep:",err))
+		}
+
+		
+		// const nowman=new Date(Date.now()).toLocaleString()
 		res.render('dashboard',{
 			username:username,
-			shortcodes: usershortcodes || []
+			shortcodes: activeshortcodes || []
 		})
 	} catch (error) {
+		    console.log(error)
 			return res.status(500).json({message:"Internal Server Error",error})
 	
 	}
@@ -236,7 +268,7 @@ app.post('/registerorlogin',async (req,res)=>{
 				secure: process.env.NODE_ENV === "production",
 				maxAge: 7200 * 1000
 			})
-
+            console.log(token)
 			return res.redirect('/dashboard')
 			}
 			else{
@@ -265,7 +297,7 @@ try {
 	if(!original_url||!domainname) return res.status(400).json({message:"Missing parameters"})
 	let shortcode="";
 	// shortcode+=domainname;
-	const expirydate=new Date(Date.now()+7200*1000).toLocaleString()
+	const expirydate=new Date(Date.now()+7200*1000).toISOString()
 	if(choice){
 		let checker=shortcode+choice
         const existingcode=await Surl.findOne({shortcode:checker})
@@ -438,10 +470,27 @@ return res.status(200).json({
 	}
 })
 
-app.get('/:shortcode',authmiddleware,async (req,res)=>{
+
+app.delete('/shortcode/:shortcode',authmiddleware,async (req,res)=>{
+try{
+	const shortcode=req.params.shortcode;
+	const existing=await Surl.findOne({shortcode});
+
+	if(!existing) return res.status(404).json({message:"Shortcode doesn't exist"});
+    await Surl.findOneAndDelete({shortcode})
+
+	return res.redirect('/dashboard')
+}catch(err){
+	console.log(err);
+	return res.status(500).json({message:'Internal Server Error',err})
+}})
+
+
+
+app.get('/:shortcode',async (req,res)=>{
 	try {
 	
-	const username=req.user.username;
+	// const username=req.user.username;
     const shortcode=req.params.shortcode;
 	const existing=await Surl.findOne({shortcode});
 
@@ -463,6 +512,7 @@ app.get('/:shortcode',authmiddleware,async (req,res)=>{
 		return res.status(500).json({message:'Internal Server Error',error})
 	}
 });
+
 
 
 app.use((req,res)=>{

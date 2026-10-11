@@ -192,7 +192,7 @@
         </div>
         <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-error-container/40 text-on-surface text-xs font-mono">
           <!-- FIX 1: Wrapped shortcode.expiry inside EJS output tags -->
-          <span>Self-destructing in <strong class="text-on-error-container" id="live-countdown"><%= shortcode.expiry %></strong></span>
+          <span>Self-destructing in <strong class="text-on-error-container expiry-date-display" id="live-countdown" data-iso="<%= shortcode.expiry %>">Loading</strong></span>
         </div>
       </div>
       
@@ -207,7 +207,7 @@
           </div>
           <p class="text-xs text-on-surface-variant truncate max-w-md mt-1 flex items-center gap-1">
             <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
-            <span id="result-long-url">https://<%= shortcode.original_url %></span>
+            <span id="result-long-url"><%= shortcode.original_url %></span>
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
@@ -242,6 +242,25 @@
 
   <!-- Clean Script Logic -->
   <script>
+
+   document.addEventListener('DOMContentLoaded',()=>{
+      document.querySelectorAll('.expiry-date-display').forEach(el=>{
+        const isostring=el.getAttribute('data-iso');
+        if(isostring){
+          const localdate=new Date(isostring);
+
+          el.innerText=localdate.toLocaleString(undefined,{
+            month:'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute:'2-digit',
+            second:'2-digit'
+          })
+        }
+      })
+   })
+
     function triggerShorten() {
       const input = document.getElementById('target-url-input');
       const btn = document.getElementById('shorten-btn');
@@ -319,6 +338,8 @@
         }, 1800);
       });
     }
+
+
 
     // Live Countdown Clock Decrementor
     // let totalSeconds = (6 * 86400) + (23 * 3600) + (59 * 60) + 44;
