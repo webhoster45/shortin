@@ -191,9 +191,8 @@ app.get('/registerorlogin', (req, res) => {
 
 app.get('/dashboard',authmiddleware, async (req, res) => {
 	try {
-		// Run this temporarily in your server files once to purge old text formats:
 
-
+  
 		const username=req.user.username;
 		
 		const usershortcodes=await Surl.find({creator:username});
