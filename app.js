@@ -340,10 +340,12 @@ app.get('/stream',async (req,res)=>{
 	res.write(' :connected\n\n')
 
 	activeclients.add(res);
+	console.log('SSE Stream: Client registered')
 	const heartbeat=setInterval(()=>{res.write(': heartbeat\n\n')},30000);
 	req.on('close',()=>{
 		clearInterval(heartbeat);
 		activeclients.delete(res)
+		console.log('SSE Stream: Client registered')
 	})
 	} catch (error) {
 		return res.status(500).json({message:"Internal Server Error",error})
@@ -356,19 +358,20 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 	const {eventtype,shortcode,query,cache}=req.body;
 	if(!eventtype||!shortcode||!query) return res.status(400).json({message:"Incomplete parameters"});
     if(!allowedevents.has(eventtype)) return res.status(400).json({message:`${eventtype} not supported`});
-    const username=req.user.username;
+    
+	const username=req.user.username;
     
 	const user=await User.findOne({username}).select("_id username")
-    let shortcodeid=await Surl.findOne({shortcode});
-	console.log(shortcodeid)
-	    if(!shortcodeid) return res.status(400).json({message:"Shortcode doesn't exist"});
-    let author=shortcodeid.creator;
-	// console.log(author,username)
-	// if(author!==username) return res.status(403).json({message:"You are not authorized to perform this"})
-	console.log(shortcodeid)
+    let shortcodedoc=await Surl.findOne({shortcode});
+	console.log(shortcodedoc)
+	    if(!shortcodedoc) return res.status(400).json({message:"Shortcode doesn't exist"});
+		if(!user) return res.status(400).json({message:"User doesn't exist"})
+    const author=shortcodedoc.creator;
 
-	console.log(shortcodeid)
-	shortcodeid = shortcodeid._id.toString();
+	console.log(shortcodedoc)
+
+	console.log(shortcodedoc)
+	let shortcodeid = shortcodedoc._id.toString();
 	console.log("reached here") 
 	if(!user) return res.status(400).json({message:"User doesn't exist"});
 
@@ -378,7 +381,7 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     
 	const event=await Event.create({eventtype,username,userid:user._id,query})
 
-    await recordmetrics({shortcodeid,eventtype,username,userid:user._id,query,cache,author})
+    await recordmetrics({shortcodeid:shortcode,eventtype,username,userid:user._id,query,cache,author})
 
     if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{EX: 86400})
 
@@ -405,6 +408,9 @@ app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 		// Or if you cache by document ID: `cache:${targetIdStr}`
 		const redirectcachekey = `${keys.cache}${targetIdStr}`; 
 		const clickcountskey=`${keys.clickcount}${targetIdStr}`;
+        const coderecordkey=`${keys.coderecord}${shortcode}`;
+        
+        const minscore=Date.now() - 300000
 
 let activity, clicks, cachepayload, recentactiveusers,clickcounts;
 
@@ -439,7 +445,7 @@ let activity, clicks, cachepayload, recentactiveusers,clickcounts;
 
 		try {
 			console.log(`Executing zRange for active users with key: ${keys?.activeusers}`);
-			recentactiveusers = await redispublisher.zRange(keys.activeusers, Date.now() - 300000, "+inf", { BY: 'SCORE' });
+			recentactiveusers = await redispublisher.zRange(keys.activeusers, Date.now() - 300000, "+inf");
 		} catch (e) {
 			console.error("❌ CRASHED AT zRange Active Users! Error details:", e.message);
 			throw new Error(`Active Users zRange failed: ${e.message}`);
@@ -458,13 +464,16 @@ console.log("Reached here 4 lolo")
 // const uniqueactivityusers= Array.from(new Set(recentactiveusers))
 console.log("Reached here 5 lolo")
 return res.status(200).json({
+	success:true,
+	shortcode,
 	activity,
 	clicks,
 	cachepayload,
-	clickcounts,
+	clickcounts:clickcounts || "0",
     activeusersnow:recentactiveusers
 })
 	} catch (error) {
+		console.error("Failed to gather analytical metric",error)
 		return res.status(500).json({message:"Internal Server Error",error})
 	}
 })

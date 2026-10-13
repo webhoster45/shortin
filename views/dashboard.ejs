@@ -211,11 +211,20 @@
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <!-- FIX 3: Changed 'https://<%= shortcode%>' to passing just the specific property value -->
-          <button class="px-6 py-3 rounded-xl bg-primary text-on-primary font-medium shadow-md hover:bg-primary-container transition-all flex items-center gap-2" id="copy-link-btn" onclick="copyShortUrl(this, 'http://localhost:3000/<%= shortcode.shortcode %>')">
-            <span class="material-symbols-outlined text-[18px]">content_copy</span>
-            <span class="copy-text">Copy Short Link</span>
-          </button>
+<!-- Inside your loop, update the actions button area to match this -->
+<div class="flex items-center gap-2 shrink-0">
+  <!-- NEW: Analytics trigger button -->
+  <button class="px-4 py-3 rounded-xl bg-surface-container-high text-on-surface hover:bg-surface-container-highest transition-all flex items-center gap-2 font-medium text-sm border border-outline-variant/30" onclick="openAnalyticsModal('<%= shortcode.shortcode %>')">
+    <span class="material-symbols-outlined text-[18px] text-secondary">monitoring</span>
+    <span>Analytics</span>
+  </button>
+
+  <button class="px-5 py-3 rounded-xl bg-primary text-on-primary font-medium shadow-md hover:opacity-95 transition-all flex items-center gap-2 text-sm" onclick="copyShortUrl(this, 'http://localhost:3000/<%= shortcode.shortcode %>')">
+    <span class="material-symbols-outlined text-[18px]">content_copy</span>
+    <span class="copy-text">Copy</span>
+  </button>
+</div>
+
         </div>
       </div>
     </div>
@@ -225,6 +234,51 @@
       </div>
     </div>
   </main>
+
+
+  <!-- Real-Time Floating Notification Toast Area -->
+<div id="toast-container" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3 max-w-sm w-full"></div>
+
+<!-- Interactive Analytics Overview Overlay Modal -->
+<div id="analytics-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 animate-fade-in">
+  <div class="bg-surface-container-lowest max-w-md w-full rounded-2xl shadow-2xl border border-outline-variant/40 p-6 flex flex-col relative transform scale-95 transition-transform duration-200">
+    <div class="flex items-center justify-between pb-4 border-b border-surface-container-high">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-secondary">analytics</span>
+        <h3 class="font-bold text-lg text-on-surface">Link Metrics Overview</h3>
+      </div>
+      <button onclick="closeAnalyticsModal()" class="w-8 h-8 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-high transition-colors">
+        <span class="material-symbols-outlined text-[20px]">close</span>
+      </button>
+    </div>
+    
+    <!-- Dynamic Stats Content Area -->
+    <div class="py-6 space-y-4 flex-1">
+      <p class="text-xs font-semibold text-outline tracking-wider uppercase">Shortcode Target: <span id="modal-target-slug" class="text-primary font-mono lowercase"></span></p>
+      
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
+          <p class="text-xs text-on-surface-variant font-medium">Total Edge Clicks</p>
+          <p id="stat-clicks" class="text-2xl font-bold tracking-tight text-primary mt-1">0</p>
+        </div>
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
+          <p class="text-xs text-on-surface-variant font-medium">Active Users (5m)</p>
+          <p id="stat-active" class="text-2xl font-bold tracking-tight text-emerald-600 mt-1">0</p>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20 flex items-center justify-between">
+        <div>
+          <p class="text-xs text-on-surface-variant font-medium">Redis Edge Cache Sync</p>
+          <p id="stat-cache-status" class="text-sm font-semibold mt-0.5">Checking...</p>
+        </div>
+        <span id="stat-cache-icon" class="material-symbols-outlined text-outline">dns</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 
   <!-- Footer -->
   <footer class="w-full bg-surface-container-low mt-16 border-t border-surface-container-high">
@@ -258,8 +312,29 @@
             second:'2-digit'
           })
         }
-      })
+      });
+
+      console.log("Connecting to live event streaming service...");
+      const eventsource=new EventSource('/stream');
+
+      eventsource.onmessage=(event)=>{
+        try{
+        const data=JSON.parse(event.data);
+        console.log("Live tracking metric recieved",data);
+
+        showLiveToast(data.shortcode,data.query);
+
+        }catch(err){
+          console.error("Failed to parse incoming stream data chunk")
+        }
+      };
+
+      eventsource.onerror=(err)=>{
+        console.error("SSE connection hitch",err)
+      }
    })
+
+
 
     function triggerShorten() {
       const input = document.getElementById('target-url-input');
