@@ -98,7 +98,7 @@
         <p class="inline-flex items-center px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-secondary text-on-primary shadow-sm hover:opacity-95 transition-all" href="#">Hello , <%= username %></p>
         <div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center ml-1">
 
-          <span class="material-symbols-outlined text-on-primary text-[18px]">person</span> 
+          <span class="material-symbols-outlined text-on-primary text-[18px]">person</span>
         </div>
       </div>
     </div>
@@ -109,7 +109,7 @@
     <div class="relative w-full overflow-hidden">
       <!-- Glow Effects -->
       <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[820px] h-[460px] bg-gradient-to-tr from-primary-fixed/40 via-secondary-fixed/30 to-tertiary-fixed/20 blur-[120px] rounded-full pointer-events-none -z-10"></div>
-      
+
       <div class="max-w-6xl mx-auto px-6 py-12">
         <!-- Hero Section -->
         <div class="text-center max-w-3xl mx-auto flex flex-col items-center">
@@ -125,26 +125,26 @@
           </p>
         </div>
 
-        
+
         <!-- Shortener Form Card -->
 <!-- Shortener Form Card (Fixed structure) -->
 <div class="mt-12 max-w-3xl mx-auto">
   <div class="bg-surface-container-lowest/90 backdrop-blur-xl rounded-2xl shadow-[0_18px_60px_-15px_rgba(70,72,212,0.12)] p-4 sm:p-6 border border-outline-variant/40">
-    
-    <!-- FIX: Removed outer form loop and dropped preventDefault() to allow natural redirection -->
+
+    <!-- The dashboard submits this form asynchronously to record its event. -->
     <form action="/shorten" method="POST" class="space-y-4" id="shorten-form">
       <div class="relative flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-surface-container-low/70 rounded-xl p-1.5 focus-within:ring-2 focus-within:ring-primary/40 transition-all">
         <div class="flex items-center gap-2 pl-3 py-1 flex-1 min-w-0">
           <span class="material-symbols-outlined text-primary text-[22px] shrink-0">link</span>
-          <input class="w-full bg-transparent border-none text-on-surface placeholder:text-outline focus:outline-none truncate" id="target-url-input" name="original_url" oninput="handleUrlInput(this.value)" placeholder="Paste a long link... (e.g. https://my-product.com)" required type="url" />
+          <input class="w-full bg-transparent border-none text-on-surface placeholder:text-outline focus:outline-none truncate" id="target-url-input" name="original_url" placeholder="Paste a long link... (e.g. https://my-product.com)" required type="url" />
         </div>
-        
+
         <button class="px-6 py-3 rounded-lg bg-gradient-to-r from-primary to-secondary text-on-primary font-medium shadow-md hover:opacity-95 transition-all flex items-center justify-center gap-2 shrink-0 group" id="shorten-btn" type="submit">
           <span id="btn-text">Shorten Link</span>
           <span class="material-symbols-outlined text-[18px] group-hover:translate-x-0.5 transition-transform" id="btn-icon">bolt</span>
         </button>
       </div>
-     
+
       <!-- Magic Options Trigger -->
       <div class="flex items-center justify-between pt-1">
         <button class="flex items-center gap-1.5 text-on-surface-variant hover:text-primary transition-colors text-xs group" onclick="toggleMagicOptions()" type="button">
@@ -156,12 +156,11 @@
 
       <!-- Magic Options Drawer -->
       <div class="hidden flex-col gap-4 pt-4 border-t border-surface-container-high" id="magic-options">
-        <div class="flex flex-col sm:flex-row gap-4 sm:items-center justify-between"> 
+        <div class="flex flex-col sm:flex-row gap-4 sm:items-center justify-between">
           <div class="flex-1">
             <label class="block text-xs font-semibold text-on-surface mb-1">Custom Backhalf Alias</label>
             <div class="flex items-center rounded-lg bg-surface-container-low px-3 py-2 border border-outline-variant/30 focus-within:border-primary">
-              <input type="hidden" id="hidden-input" name="domainname" required value="http://localhost:3000">
-              <span class="text-xs text-on-surface-variant select-none">localhost:3000/</span>
+              <span class="text-xs text-on-surface-variant select-none"><%= baseUrl %>/</span>
               <input class="bg-transparent border-none text-xs text-on-surface p-0 focus:outline-none flex-1 ml-1 font-mono" id="custom-alias" name="choice" type="text" placeholder="Customize a url!"/>
               <span class="flex items-center gap-1 text-emerald-600 text-xs uppercase bg-emerald-50 px-2 py-0.5 rounded">
                 <span class="material-symbols-outlined text-[14px]">check</span> Available
@@ -170,8 +169,9 @@
           </div>
         </div>
       </div>
+      <p id="shorten-feedback" class="hidden text-sm text-error px-2" role="status"></p>
     </form>
-    
+
   </div>
 </div>
 
@@ -195,13 +195,13 @@
           <span>Self-destructing in <strong class="text-on-error-container expiry-date-display" id="live-countdown" data-iso="<%= shortcode.expiry %>">Loading</strong></span>
         </div>
       </div>
-      
+
       <div class="py-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <span class="text-xl font-bold tracking-tight text-primary hover:underline cursor-pointer">
               <!-- FIX 2: Wrapped shortcode.shortcode inside EJS output tags -->
-              http://localhost:3000/<span id="result-slug"><%= shortcode.shortcode %></span>
+              <%= baseUrl %>/<span id="result-slug"><%= shortcode.shortcode %></span>
             </span>
             <span class="px-2 py-0.5 rounded bg-surface-container-high text-on-surface text-xs">301 Redirect</span>
           </div>
@@ -219,7 +219,7 @@
     <span>Analytics</span>
   </button>
 
-  <button class="px-5 py-3 rounded-xl bg-primary text-on-primary font-medium shadow-md hover:opacity-95 transition-all flex items-center gap-2 text-sm" onclick="copyShortUrl(this, 'http://localhost:3000/<%= shortcode.shortcode %>')">
+  <button class="px-5 py-3 rounded-xl bg-primary text-on-primary font-medium shadow-md hover:opacity-95 transition-all flex items-center gap-2 text-sm" data-short-url="<%= baseUrl %>/<%= shortcode.shortcode %>" onclick="copyShortUrl(this, this.dataset.shortUrl)">
     <span class="material-symbols-outlined text-[18px]">content_copy</span>
     <span class="copy-text">Copy</span>
   </button>
@@ -241,7 +241,7 @@
 
 <!-- Interactive Analytics Overview Overlay Modal -->
 <div id="analytics-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-on-surface/40 backdrop-blur-sm p-4 animate-fade-in">
-  <div class="bg-surface-container-lowest max-w-md w-full rounded-2xl shadow-2xl border border-outline-variant/40 p-6 flex flex-col relative transform scale-95 transition-transform duration-200">
+  <div class="bg-surface-container-lowest max-w-2xl w-full max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border border-outline-variant/40 p-6 flex flex-col relative transform scale-95 transition-transform duration-200">
     <div class="flex items-center justify-between pb-4 border-b border-surface-container-high">
       <div class="flex items-center gap-2">
         <span class="material-symbols-outlined text-secondary">analytics</span>
@@ -251,28 +251,57 @@
         <span class="material-symbols-outlined text-[20px]">close</span>
       </button>
     </div>
-    
+
     <!-- Dynamic Stats Content Area -->
     <div class="py-6 space-y-4 flex-1">
       <p class="text-xs font-semibold text-outline tracking-wider uppercase">Shortcode Target: <span id="modal-target-slug" class="text-primary font-mono lowercase"></span></p>
-      
+
       <div class="grid grid-cols-2 gap-3">
         <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
           <p class="text-xs text-on-surface-variant font-medium">Total Edge Clicks</p>
           <p id="stat-clicks" class="text-2xl font-bold tracking-tight text-primary mt-1">0</p>
         </div>
         <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
-          <p class="text-xs text-on-surface-variant font-medium">Active Users (5m)</p>
+          <p class="text-xs text-on-surface-variant font-medium">Authenticated App Users (5m)</p>
           <p id="stat-active" class="text-2xl font-bold tracking-tight text-emerald-600 mt-1">0</p>
+        </div>
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
+          <p class="text-xs text-on-surface-variant font-medium">Redirect Visits (5m)</p>
+          <p id="stat-visits" class="text-2xl font-bold tracking-tight text-tertiary mt-1">0</p>
+        </div>
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
+          <p class="text-xs text-on-surface-variant font-medium">Global Click Rank</p>
+          <p id="stat-rank" class="text-2xl font-bold tracking-tight text-secondary mt-1">—</p>
+          <p class="text-xs text-on-surface-variant mt-1">Redis score: <span id="stat-score">0</span></p>
         </div>
       </div>
 
       <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20 flex items-center justify-between">
         <div>
-          <p class="text-xs text-on-surface-variant font-medium">Redis Edge Cache Sync</p>
+          <p class="text-xs text-on-surface-variant font-medium">Redirect Destination Cache</p>
           <p id="stat-cache-status" class="text-sm font-semibold mt-0.5">Checking...</p>
         </div>
         <span id="stat-cache-icon" class="material-symbols-outlined text-outline">dns</span>
+      </div>
+
+      <div class="grid md:grid-cols-2 gap-3">
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20 min-w-0">
+          <p class="text-xs text-on-surface-variant font-medium mb-2">Redis Short Code Record</p>
+          <pre id="stat-code-record" class="text-xs font-mono whitespace-pre-wrap break-all">Loading...</pre>
+        </div>
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20 min-w-0">
+          <p class="text-xs text-on-surface-variant font-medium mb-2">Cached Redirect Destination</p>
+          <pre id="stat-cache-payload" class="text-xs font-mono whitespace-pre-wrap break-all max-h-32 overflow-auto">Loading...</pre>
+        </div>
+        <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20 min-w-0">
+          <p class="text-xs text-on-surface-variant font-medium mb-2">Optional Event Cache Result</p>
+          <pre id="stat-event-cache" class="text-xs font-mono whitespace-pre-wrap break-all max-h-32 overflow-auto">Loading...</pre>
+        </div>
+      </div>
+
+      <div class="bg-surface-container-low p-4 rounded-xl border border-outline-variant/20">
+        <p class="text-xs text-on-surface-variant font-medium mb-2">Redis Activity Set (today)</p>
+        <pre id="stat-activity" class="text-xs font-mono whitespace-pre-wrap break-words max-h-40 overflow-auto">Loading...</pre>
       </div>
     </div>
   </div>
@@ -297,140 +326,205 @@
   <!-- Clean Script Logic -->
   <script>
 
-   document.addEventListener('DOMContentLoaded',()=>{
-      document.querySelectorAll('.expiry-date-display').forEach(el=>{
-        const isostring=el.getAttribute('data-iso');
-        if(isostring){
-          const localdate=new Date(isostring);
-
-          el.innerText=localdate.toLocaleString(undefined,{
-            month:'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute:'2-digit',
-            second:'2-digit'
-          })
-        }
-      });
-
-      console.log("Connecting to live event streaming service...");
-      const eventsource=new EventSource('/stream');
-
-      eventsource.onmessage=(event)=>{
-        try{
-        const data=JSON.parse(event.data);
-        console.log("Live tracking metric recieved",data);
-
-        showLiveToast(data.shortcode,data.query);
-
-        }catch(err){
-          console.error("Failed to parse incoming stream data chunk")
-        }
-      };
-
-      eventsource.onerror=(err)=>{
-        console.error("SSE connection hitch",err)
+    document.addEventListener('DOMContentLoaded', () => {
+    // 1. Format all timestamps safely on render mount
+    document.querySelectorAll('.expiry-date-display').forEach(el => {
+      const isostring = el.getAttribute('data-iso');
+      if (isostring) {
+        const localdate = new Date(isostring);
+        el.innerText = localdate.toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
       }
-   })
+    });
 
+    // 2. Open Real-Time SSE Stream pipeline connection channel
+    console.log("📡 Connecting to live event streaming service...");
+    const eventSource = new EventSource('/stream');
 
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("⚡ Live tracking metric received:", data);
 
-    function triggerShorten() {
-      const input = document.getElementById('target-url-input');
-      const btn = document.getElementById('shorten-btn');
-      const btnText = document.getElementById('btn-text');
-      const btnIcon = document.getElementById('btn-icon');
-      const btnSpinner = document.getElementById('btn-spinner');
-      const resultCard = document.getElementById('result-card');
-      const resultSlug = document.getElementById('result-slug');
-      const resultLong = document.getElementById('result-long-url');
-      const customAlias = document.getElementById('custom-alias').value.trim();
+        // Spawn an elegant floating action banner toast message notification immediately
+        showLiveToast(data.shortcode, data.query, data.eventtype);
+      } catch (err) {
+        console.error("Failed to parse incoming stream data chunk:", err);
+      }
+    };
 
-      if (!input.value) return;
+    eventSource.onerror = (err) => {
+      console.error("SSE connection hitch. Client auto-reconnecting...", err);
+    };
+  });
 
-      btnText.innerText = 'Compressing...';
-      btnIcon.classList.add('hidden');
-      btnSpinner.classList.remove('hidden');
-      btn.disabled = true;
+  document.getElementById('shorten-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = form.querySelector('[type="submit"]');
+    const feedback = document.getElementById('shorten-feedback');
+    feedback.classList.add('hidden');
+    submitButton.disabled = true;
+    try {
+      const createResponse = await fetch('/shorten', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+        body: new FormData(form)
+      });
+      const created = await createResponse.json().catch(() => ({}));
+      if (!createResponse.ok || !created.success) throw new Error(created.message || 'Could not create the short link.');
 
+      const eventResponse = await fetch('/event', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'Idempotency-Key': crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          eventtype: 'shortcodes',
+          shortcode: created.shortcode,
+          query: 'created'
+        })
+      });
+      const eventResult = await eventResponse.json().catch(() => ({}));
+      if (!eventResponse.ok || !eventResult.success) {
+        feedback.textContent = `/${created.shortcode} was created, but its activity event could not be recorded: ${eventResult.message || 'please try again'}`;
+        feedback.classList.remove('hidden');
+        return;
+      }
+      window.location.assign('/dashboard');
+    } catch (error) {
+      feedback.textContent = error.message || 'Something went wrong while creating the link.';
+      feedback.classList.remove('hidden');
+    } finally {
+      submitButton.disabled = false;
+    }
+  });
+
+  // Fetch data cleanly from our fixed /analytics/overview backend route
+  function openAnalyticsModal(shortcode) {
+    const modal = document.getElementById('analytics-modal');
+    document.getElementById('modal-target-slug').innerText = `/${shortcode}`;
+
+    // Set initial loading placeholders
+    document.getElementById('stat-clicks').innerText = "...";
+    document.getElementById('stat-active').innerText = "...";
+    document.getElementById('stat-visits').innerText = "...";
+    document.getElementById('stat-rank').innerText = "...";
+    document.getElementById('stat-score').innerText = "...";
+    document.getElementById('stat-cache-status').innerText = "Fetching telemetry data...";
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    fetch('/analytics/overview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ shortcode })
+    })
+    .then(async res => {
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to fetch analytics.');
+      return data.redis;
+    })
+    .then(redis => {
+      document.getElementById('stat-clicks').innerText = redis.clickCount;
+      document.getElementById('stat-active').innerText = redis.activeUsersLast5Minutes;
+      document.getElementById('stat-visits').innerText = redis.redirectVisitsLastFiveMinutes;
+      document.getElementById('stat-rank').innerText = redis.clickLeaderboardRank ?? 'Unranked';
+      document.getElementById('stat-score').innerText = redis.clickLeaderboardScore;
+      document.getElementById('stat-code-record').textContent = redis.shortCodeRecord ?? 'Missing or expired';
+      document.getElementById('stat-cache-payload').textContent = redis.redirectCachePayload ?? 'No redirect destination cached';
+      document.getElementById('stat-event-cache').textContent = redis.eventCachePayload ?? 'No event cache result';
+      document.getElementById('stat-activity').textContent = redis.activity.length
+        ? redis.activity.join('\n')
+        : 'No activity recorded today.';
+
+      const cacheEl = document.getElementById('stat-cache-status');
+      const iconEl = document.getElementById('stat-cache-icon');
+      cacheEl.innerText = redis.redirectCachePresent ? 'Redirect destination is cached' : 'Redirect destination is not cached';
+      cacheEl.className = redis.redirectCachePresent
+        ? 'text-sm font-semibold text-emerald-600 mt-0.5'
+        : 'text-sm font-semibold text-amber-600 mt-0.5';
+      iconEl.className = redis.redirectCachePresent
+        ? 'material-symbols-outlined text-emerald-500 animate-pulse'
+        : 'material-symbols-outlined text-amber-500';
+    })
+    .catch(err => {
+      console.error("Error loading shortcode metrics:", err);
+      document.getElementById('stat-cache-status').innerText = err.message || 'Failed to load analytics.';
+    });
+  }
+
+  function closeAnalyticsModal() {
+    document.getElementById('analytics-modal').classList.add('hidden');
+  }
+
+  function showLiveToast(shortcode, query, eventtype) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = "bg-inverse-surface text-inverse-on-surface p-4 rounded-xl shadow-2xl border border-outline/20 flex items-start gap-3 transform translate-y-4 opacity-0 transition-all duration-300 ease-out";
+
+    const icon = document.createElement('span');
+    icon.className = 'material-symbols-outlined text-tertiary-fixed-dim shrink-0 animate-bounce';
+    icon.textContent = 'bolt';
+    const content = document.createElement('div');
+    content.className = 'flex-1 min-w-0';
+    const title = document.createElement('p');
+    title.className = 'text-xs font-bold uppercase tracking-wider text-primary-fixed-dim';
+    title.textContent = eventtype === 'shortcodes' ? 'Short link created' : 'Link activity';
+    const visit = document.createElement('p');
+    visit.className = 'text-sm font-medium truncate mt-0.5';
+    visit.textContent = `/${shortcode || ''} · ${query || 'activity recorded'}`;
+    const details = document.createElement('p');
+    details.className = 'text-xs text-outline-variant truncate mt-0.5';
+    details.textContent = `Event: ${eventtype || 'unknown'}`;
+    content.append(title, visit, details);
+    toast.append(icon, content);
+
+    container.appendChild(toast);
+    setTimeout(() => { toast.classList.remove('translate-y-4', 'opacity-0'); }, 10);
+    setTimeout(() => {
+      toast.classList.add('opacity-0', 'translate-y-2');
+      setTimeout(() => { toast.remove(); }, 300);
+    }, 4500);
+  }
+
+  function toggleMagicOptions() {
+    const drawer = document.getElementById('magic-options');
+    const caret = document.getElementById('magic-caret');
+    if (drawer.classList.contains('hidden')) {
+      drawer.classList.remove('hidden');
+      drawer.classList.add('flex');
+      caret.classList.add('rotate-180');
+    } else {
+      drawer.classList.add('hidden');
+      drawer.classList.remove('flex');
+      caret.classList.remove('rotate-180');
+    }
+  }
+
+  function copyShortUrl(btnElement, textToCopy) {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      const textSpan = btnElement.querySelector('.copy-text');
+      if (textSpan) textSpan.innerText = 'Copied!';
+      btnElement.classList.add('bg-emerald-600', 'text-white');
       setTimeout(() => {
-        btnText.innerText = 'Shorten Link';
-        btnIcon.classList.remove('hidden');
-        btnSpinner.classList.add('hidden');
-        btn.disabled = false;
+        if (textSpan) textSpan.innerText = 'Copy';
+        btnElement.classList.remove('bg-emerald-600', 'text-white');
+      }, 1800);
+    });
+  }
 
-        const finalSlug = customAlias || 'link-' + Math.random().toString(36).substring(2, 7);
-        resultSlug.innerText = finalSlug;
-        resultLong.innerText = input.value;
-
-        const copyBtn = document.getElementById('copy-link-btn');
-        copyBtn.setAttribute('onclick', `copyShortUrl(this, 'https://shortin.io/${finalSlug}')`);
-
-        resultCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 650);
-    }
-
-    function handleUrlInput(value) {
-      const badge = document.getElementById('url-badge');
-      if (value.startsWith('http://') || value.startsWith('https://')) {
-        badge.classList.remove('hidden');
-      } else {
-        badge.classList.add('hidden');
-      }
-    }
-
-    function toggleMagicOptions() {
-      const drawer = document.getElementById('magic-options');
-      const caret = document.getElementById('magic-caret');
-      if (drawer.classList.contains('hidden')) {
-        drawer.classList.remove('hidden');
-        drawer.classList.add('flex');
-        caret.classList.add('rotate-180');
-      } else {
-        drawer.classList.add('hidden');
-        drawer.classList.remove('flex');
-        caret.classList.remove('rotate-180');
-      }
-    }
-
-    function copyShortUrl(btnElement, textToCopy) {
-      navigator.clipboard.writeText(textToCopy).then(() => {
-        const textSpan = btnElement.querySelector('.copy-text');
-        const iconSpan = btnElement.querySelector('.material-symbols-outlined');
-        const originalText = textSpan ? textSpan.innerText : '';
-        const originalIcon = iconSpan ? iconSpan.innerText : '';
-
-        if (textSpan) textSpan.innerText = 'Copied!';
-        if (iconSpan) iconSpan.innerText = 'done';
-        
-        btnElement.classList.add('bg-emerald-600', 'text-white');
-
-        setTimeout(() => {
-          if (textSpan) textSpan.innerText = originalText;
-          if (iconSpan) iconSpan.innerText = originalIcon;
-          btnElement.classList.remove('bg-emerald-600', 'text-white');
-        }, 1800);
-      });
-    }
-
-
-
-    // Live Countdown Clock Decrementor
-    // let totalSeconds = (6 * 86400) + (23 * 3600) + (59 * 60) + 44;
-    // setInterval(() => {
-    //   totalSeconds--;
-    //   if (totalSeconds > 0) {
-    //     const d = Math.floor(totalSeconds / (3600*24));
-    //     const h = Math.floor((totalSeconds % (3600*24)) / 3600);
-    //     const m = Math.floor((totalSeconds % 3600) / 60);
-    //     const s = Math.floor(totalSeconds % 60);
-    //     const clockEl = document.getElementById('live-countdown');
-    //     if (clockEl) {
-    //       clockEl.innerText = `${d}d ${h}h ${m}m ${s}s`;
-    //     }
-    //   }
-    // }, 1000);
   </script>
 </body>
 </html>

@@ -8,13 +8,14 @@ const bcrypt=require("bcrypt");
 const { type } = require('os');
 const characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const {createClient}=require('redis');
+const {randomUUID}=require('crypto');
 const { Socket } = require('dgram');
 const MONGODB_URL=process.env.MONGODB_URL;
 const JWT_SECRET=process.env.JWT_SECERT;
 const jwt=require("jsonwebtoken");
 const cookieparser=require('cookie-parser')
 const { resolveSoa } = require('dns');
-const activeclients=new Set();
+const activeclients=new Map();
 
 
 const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
@@ -22,10 +23,11 @@ const allowedevents=new Set(['cacheresults','registerorlogin','shortcodes'])
 const keys={
 	coderecord:'Short Code records: ',
 	cache:'Cache Redirect Results: ',
+	eventcache:'Event Cache Results: ',
 	getin:'Register or logins: ',
-	clicks:"Total clicks: ",
+	clicks:"Redirect click leaderboard v2",
 	activeusers:'Total Active Users',
-    clickcount:"Click count "
+    clickcount:"Redirect click count v2 "
 }
 
 const Userschema=mongoose.Schema({
@@ -40,6 +42,7 @@ const Surlschema=mongoose.Schema({
 	creator:{type:String,required:true},
 	expiry:{type:String,required:true},
 },{timestamps:true})
+Surlschema.index({shortcode:1},{unique:true});
 
 const Eventschema=mongoose.Schema({
 	eventtype:{type:String,required:true},
@@ -72,8 +75,8 @@ function requireredis(req,res,next){
 	return res.status(503).json({message:'Redis is unavaliable'})
 }
 
-function activitykey(){
-	return `Activity: ${new Date().toISOString().split('T')[0]}`
+function activitykey(shortcode){
+	return `Activity: ${shortcode}: ${new Date().toISOString().split('T')[0]}`
 }
 
 
@@ -90,7 +93,7 @@ async function claimevent(eventid,username){
 	   if(!eventid) return null;
 	   if(eventid.length>200){
 	   const error=new Error('Idempotency key too long')
-	   error.status(400);
+	   error.status=400;
 	   throw error;
 	   }
 	   const key=`event: ${username} : ${eventid}`;
@@ -111,19 +114,14 @@ async function claimevent(eventid,username){
 async function recordmetrics({shortcodeid,eventtype,username,userid,query,cache,author}){
 try {
 	const activity=`${username} ${eventtype} : ${query}`;
-    const shortcoderecordkey=`${keys.coderecord}${shortcodeid}`;
-	const redirectcachekey=`${keys.cache}${shortcodeid}`;
+	const eventcachekey=`${keys.eventcache}${shortcodeid}`;
     console.log(shortcodeid)
     console.log(cache)
 
     await Promise.all([
 	redispublisher.zAdd(keys.activeusers,{score:Date.now(),value:String(userid)}),
-    redispublisher.sAdd(activitykey(),activity),
-// When a link is clicked, increment its position on the leaderboard:
-    redispublisher.zIncrBy(keys.clicks, 1, shortcodeid),
-	redispublisher.set(shortcoderecordkey,String(shortcodeid),{EX:7200}),
-	redispublisher.incr(keys.clickcount+shortcodeid,1),
-    cache ? redispublisher.set(redirectcachekey,cache,{EX: 7200}): Promise.resolve()
+    redispublisher.sAdd(activitykey(shortcodeid),activity),
+    cache!==undefined ? redispublisher.set(eventcachekey,typeof cache==='string' ? cache : JSON.stringify(cache),{EX:7200}): Promise.resolve()
 ])
 
 
@@ -138,6 +136,12 @@ try {
 
 
 const authmiddleware=async (req,res,next)=>{
+	const authenticationFailed=()=>{
+		if(req.path==='/event' || req.path.startsWith('/analytics/') || req.path.startsWith('/api/')) {
+			return res.status(401).json({message:'Authentication required'});
+		}
+		return res.redirect('/registerorlogin');
+	};
 	try {
 		// const authheader=req.headers.authorization;
 
@@ -146,17 +150,17 @@ const authmiddleware=async (req,res,next)=>{
 		const token=req.cookies.shortin_token;
 
 
-		if(!token) return res.redirect('/registerorlogin')
+		if(!token) return authenticationFailed();
 	
 		jwt.verify(token,JWT_SECRET,(err,decoded)=>{
-			if(err) return res.redirect('/registerorlogin')
+			if(err) return authenticationFailed();
 			req.user=decoded;
 	         console.log(decoded)
  			next();
 		})
 
 	} catch (error) {
-      return res.redirect('/registerorlogin')
+		  return authenticationFailed();
 	}
 }
 
@@ -223,7 +227,8 @@ app.get('/dashboard',authmiddleware, async (req, res) => {
 		// const nowman=new Date(Date.now()).toLocaleString()
 		res.render('dashboard',{
 			username:username,
-			shortcodes: activeshortcodes || []
+			shortcodes: activeshortcodes || [],
+			baseUrl:(process.env.SHORT_BASE_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/,'')
 		})
 	} catch (error) {
 		    console.log(error)
@@ -248,6 +253,7 @@ app.post('/registerorlogin',async (req,res)=>{
 
 		   res.cookie('shortin_token',token,{
 			httpOnly: true,
+			sameSite:'lax',
 			secure: process.env.NODE_ENV === 'production',
 			maxAge: 7200 * 1000
 		   })
@@ -264,6 +270,7 @@ app.post('/registerorlogin',async (req,res)=>{
 
 			res.cookie('shortin_token',token,{
 				httpOnly: true,
+				sameSite:'lax',
 				secure: process.env.NODE_ENV === "production",
 				maxAge: 7200 * 1000
 			})
@@ -292,25 +299,34 @@ app.get('/api/getuser',authmiddleware,async(req,res)=>{
 app.post('/shorten',authmiddleware,async (req,res)=>{
 try {
 	const username=req.user.username;
-	const {original_url,choice,domainname}=req.body;
-	if(!original_url||!domainname) return res.status(400).json({message:"Missing parameters"})
-	let shortcode="";
-	// shortcode+=domainname;
+	const {original_url}=req.body;
+	const choice=typeof req.body.choice==='string' ? req.body.choice.trim() : '';
+	if(!original_url) return res.status(400).json({message:"Missing parameters"});
+	let parsedUrl;
+	try { parsedUrl=new URL(original_url); } catch { return res.status(400).json({message:"A valid URL is required"}); }
+	if(!['http:','https:'].includes(parsedUrl.protocol)) return res.status(400).json({message:"Only HTTP and HTTPS links are allowed"});
+	if(choice && !/^[a-zA-Z0-9_-]{3,40}$/.test(choice)) return res.status(400).json({message:"Alias must be 3â€“40 letters, numbers, underscores, or hyphens"});
+	let shortcode=choice;
 	const expirydate=new Date(Date.now()+7200*1000).toISOString()
-	if(choice){
-		let checker=shortcode+choice
-        const existingcode=await Surl.findOne({shortcode:checker})
-		if(existingcode) return res.status(409).send({message:`The typed shortcode is already taken`})
-		shortcode+=choice
+	if(choice && await Surl.exists({shortcode})) return res.status(409).json({message:"The typed shortcode is already taken"});
+	if(!choice){
+		for(let attempt=0;attempt<5;attempt++){
+			shortcode=generatelogic();
+			if(!await Surl.exists({shortcode})) break;
+			shortcode='';
+		}
+		if(!shortcode) return res.status(503).json({message:"Could not generate a shortcode; please retry"});
 	}
-
-	else{
-		shortcode+=generatelogic()
-	}
-    await redispublisher.set(keys.coderecord+shortcode,shortcode,{EX: 7200})
-    await Surl.create({original_url,shortcode,creator:username,expiry:expirydate});
+	await Surl.create({original_url:parsedUrl.toString(),shortcode,creator:username,expiry:expirydate});
+	await Promise.all([
+		redispublisher.set(keys.coderecord+shortcode,shortcode,{EX:7200}),
+		redispublisher.set(keys.cache+shortcode,parsedUrl.toString(),{EX:7200})
+	]);
+	if(req.accepts('json')) return res.status(201).json({success:true,shortcode});
 	return res.redirect('/dashboard')
 } catch (error) {
+	if(error.code===11000) return res.status(409).json({message:"The typed shortcode is already taken"});
+	console.error(error);
 	return res.status(500).send('error')
 }
 });
@@ -327,19 +343,18 @@ try {
 // })
 
 
-app.get('/stream',async (req,res)=>{
+app.get('/stream',authmiddleware,async (req,res)=>{
 	try {
 		res.writeHead(200,{
 			'Content-Type':'text/event-stream',
 			'Cache-Control':'no-cache , no transform',
 			connection:'keep-alive',
-		    'Access-control-allow-origin':'*'
 		}
 
 	)
 	res.write(' :connected\n\n')
 
-	activeclients.add(res);
+	activeclients.set(res,req.user.username);
 	console.log('SSE Stream: Client registered')
 	const heartbeat=setInterval(()=>{res.write(': heartbeat\n\n')},30000);
 	req.on('close',()=>{
@@ -366,14 +381,8 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
 	console.log(shortcodedoc)
 	    if(!shortcodedoc) return res.status(400).json({message:"Shortcode doesn't exist"});
 		if(!user) return res.status(400).json({message:"User doesn't exist"})
-    const author=shortcodedoc.creator;
-
-	console.log(shortcodedoc)
-
-	console.log(shortcodedoc)
+	if(new Date(shortcodedoc.expiry).getTime()<=Date.now()) return res.status(410).json({message:"Shortcode expired"});
 	let shortcodeid = shortcodedoc._id.toString();
-	console.log("reached here") 
-	if(!user) return res.status(400).json({message:"User doesn't exist"});
 
 	const eventid=req.get('Idempotency-Key');
 	idempotencykey=await claimevent(eventid,username);
@@ -381,111 +390,81 @@ app.post('/event',authmiddleware,requireredis,async (req,res)=>{
     
 	const event=await Event.create({eventtype,username,userid:user._id,query})
 
-    await recordmetrics({shortcodeid:shortcode,eventtype,username,userid:user._id,query,cache,author})
+    await recordmetrics({shortcodeid:shortcode,eventtype,username,userid:user._id,query,cache})
 
     if(idempotencykey) await redispublisher.set(idempotencykey,'processed',{EX: 86400})
 
-	await redispublisher.publish('notifications',JSON.stringify({shortcodeid,eventtype,username,userid:user._id,query,cache,createdAt:event.createdAt}));
-	return res.status(201).json({message:`${username}: ${eventtype} registered sucessfully`});
+	await redispublisher.publish('notifications',JSON.stringify({shortcodeid,shortcode,creator:shortcodedoc.creator,eventtype,username,userid:user._id,query,cache,createdAt:event.createdAt}));
+	return res.status(201).json({success:true,message:`${username}: ${eventtype} registered successfully`});
   } catch (error) {
 	if(idempotencykey)await redispublisher.del(idempotencykey).catch(()=>{})
-	return res.status(500).json({message:'Internal Server Error',error})
+	return res.status(error.status||500).json({success:false,message:error.message||'Internal Server Error'})
   }
 });
 
 app.post('/analytics/overview',authmiddleware,requireredis,async (req,res)=>{
 	try {
-		console.log("reached lolo")
-        const {shortcode}=req.body;
-		const shortcodedoc=await Surl.findOne({shortcode})
-        const author=shortcodedoc.creator
-		if(!shortcodedoc) return res.status(404).json({message:"Shortcode not Found"})
-
-		const targetIdStr = shortcodedoc._id.toString();
-
-		// FIX: Make sure this key matches exactly what you use when you call redispublisher.set()
-		// For example, if you cache by shortcode name: `cache:${shortcode}` 
-		// Or if you cache by document ID: `cache:${targetIdStr}`
-		const redirectcachekey = `${keys.cache}${targetIdStr}`; 
-		const clickcountskey=`${keys.clickcount}${targetIdStr}`;
-        const coderecordkey=`${keys.coderecord}${shortcode}`;
-        
-        const minscore=Date.now() - 300000
-
-let activity, clicks, cachepayload, recentactiveusers,clickcounts;
-
-		try {
-			console.log("Checking activitykey()...");
-			const actKey = activitykey();
-			console.log(`Executing sMembers with key: ${actKey}`);
-			activity = await redispublisher.sMembers(actKey);
-		} catch (e) {
-			console.error("❌ CRASHED AT sMembers! Error details:", e.message);
-			throw new Error(`sMembers failed: ${e.message}`);
+		const {shortcode}=req.body;
+		if(typeof shortcode!=='string' || !shortcode) return res.status(400).json({message:'A shortcode is required'});
+		const shortcodedoc=await Surl.findOne({shortcode});
+		if(!shortcodedoc) return res.status(404).json({message:'Shortcode not found'});
+		if(shortcodedoc.creator!==req.user.username) return res.status(403).json({message:'You do not own this shortcode'});
+		const expiryTime=new Date(shortcodedoc.expiry).getTime();
+		const ttlSeconds=Math.ceil((expiryTime-Date.now())/1000);
+		if(ttlSeconds>0 && !(await redispublisher.get(`${keys.cache}${shortcode}`))){
+			await Promise.all([
+				redispublisher.set(`${keys.cache}${shortcode}`,shortcodedoc.original_url,{EX:ttlSeconds}),
+				redispublisher.set(`${keys.coderecord}${shortcode}`,shortcode,{EX:ttlSeconds})
+			]);
 		}
-
-		try {
-			console.log(`Executing zRange for clicks with key: ${keys?.clicks}`);
-			clicks = await redispublisher.zRange(keys.clicks, 0, -1, { REV: true });
-		} catch (e) {
-			console.error("❌ CRASHED AT zRange Clicks! Error details:", e.message);
-			throw new Error(`zRange Clicks failed: ${e.message}`);
-		}
-
-		try {
-			const cacheKey = `${keys.cache}${targetIdStr}`;
-            console.log(cacheKey)
-			console.log(`Executing get for cache with key: ${cacheKey}`);
-			cachepayload = await redispublisher.get(cacheKey);
-			console.log(`Cache payload retrieved: ${cachepayload}, Id for shortcode : ${targetIdStr}`)
-		} catch (e) {
-			console.error("❌ CRASHED AT cache get! Error details:", e.message);
-			throw new Error(`Cache get failed: ${e.message}`);
-		}
-
-		try {
-			console.log(`Executing zRange for active users with key: ${keys?.activeusers}`);
-			recentactiveusers = await redispublisher.zRange(keys.activeusers, Date.now() - 300000, "+inf");
-		} catch (e) {
-			console.error("❌ CRASHED AT zRange Active Users! Error details:", e.message);
-			throw new Error(`Active Users zRange failed: ${e.message}`);
-		}
-        try {
-			coderecord=await redispublisher.get(keys.coderecord+shortcode)
-		} catch (e) {
-			console.error(e.message)
-		}
-        try {
-			clickcounts=await redispublisher.get(keys.clickcount+targetIdStr)
-		} catch (e) {
-			console.error(e.message)
-		}
-console.log("Reached here 4 lolo")
-// const uniqueactivityusers= Array.from(new Set(recentactiveusers))
-console.log("Reached here 5 lolo")
-return res.status(200).json({
-	success:true,
-	shortcode,
-	activity,
-	clicks,
-	cachepayload,
-	clickcounts:clickcounts || "0",
-    activeusersnow:recentactiveusers
-})
-	} catch (error) {
-		console.error("Failed to gather analytical metric",error)
-		return res.status(500).json({message:"Internal Server Error",error})
+		const [activity,clickScore,redirectCachePayload,eventCachePayload,clickcounts,activeUserIds,shortCodeRecord,clickRank]=await Promise.all([
+			redispublisher.sMembers(activitykey(shortcode)),
+			redispublisher.zScore(keys.clicks,shortcode),
+			redispublisher.get(`${keys.cache}${shortcode}`),
+			redispublisher.get(`${keys.eventcache}${shortcode}`),
+			redispublisher.get(`${keys.clickcount}${shortcode}`),
+			redispublisher.zRangeByScore(keys.activeusers,Date.now()-300000,'+inf'),
+			redispublisher.get(`${keys.coderecord}${shortcode}`),
+			redispublisher.zRevRank(keys.clicks,shortcode)
+		]);
+		const redirectVisitsLastFiveMinutes=await redispublisher.zCount(
+			`Recent Redirect Visits: ${shortcode}`,
+			Date.now()-300000,
+			'+inf'
+		);
+		return res.status(200).json({
+			success:true,
+			shortcode,
+			redis:{
+				clickCount:Number(clickcounts||0),
+				clickLeaderboardScore:clickScore==null ? 0 : Number(clickScore),
+				clickLeaderboardRank:clickRank===null ? null : clickRank+1,
+				activeUsersLast5Minutes:activeUserIds.length,
+				redirectVisitsLastFiveMinutes,
+				activity,
+				shortCodeRecord,
+				redirectCachePayload,
+				redirectCachePresent:redirectCachePayload!==null,
+				eventCachePayload
+			}
+		});
+	} catch(error) {
+		console.error('Failed to gather analytical metrics',error);
+		return res.status(500).json({message:'Internal Server Error'});
 	}
-})
-
-
+});
 app.delete('/shortcode/:shortcode',authmiddleware,async (req,res)=>{
 try{
 	const shortcode=req.params.shortcode;
-	const existing=await Surl.findOne({shortcode});
+	const existing=await Surl.findOne({shortcode,creator:req.user.username});
 
 	if(!existing) return res.status(404).json({message:"Shortcode doesn't exist"});
-    await Surl.findOneAndDelete({shortcode})
+    await Surl.findOneAndDelete({shortcode,creator:req.user.username})
+	await Promise.all([
+		redispublisher.del(`${keys.coderecord}${shortcode}`),
+		redispublisher.del(`${keys.cache}${shortcode}`),
+		redispublisher.del(`${keys.eventcache}${shortcode}`)
+	]);
 
 	return res.redirect('/dashboard')
 }catch(err){
@@ -497,24 +476,49 @@ try{
 
 app.get('/:shortcode',async (req,res)=>{
 	try {
-	
-	// const username=req.user.username;
-    const shortcode=req.params.shortcode;
-	const existing=await Surl.findOne({shortcode});
-
-	const lookup=keys.coderecord + shortcode
-	const existinginredis=await redispublisher.get(lookup);
-	console.log(existinginredis)
-	if(!existinginredis){
-		const toshow=await Surl.findOneAndDelete({shortcode})
-		return res.status(400).json({message:"Expired shortcode"})
+	const shortcode=req.params.shortcode;
+	const cacheKey=`${keys.cache}${shortcode}`;
+	const codeRecord=await redispublisher.get(`${keys.coderecord}${shortcode}`);
+	let cachedDestination=codeRecord ? await redispublisher.get(cacheKey) : null;
+	let destination;
+	if(cachedDestination){
+		try { destination=new URL(cachedDestination); } catch { destination=null; }
+		if(destination && !['http:','https:'].includes(destination.protocol)) destination=null;
 	}
-
-	
-	// console.log(toshow)
-	console.log(shortcode,existing)
-	if(!existing) return res.status(404).json({message:"Link not found in database"})
-	res.redirect(existing.original_url)
+	let existing=null;
+	if(!destination){
+		existing=await Surl.findOne({shortcode});
+		if(!existing) return res.status(404).json({message:"Link not found in database"});
+		const expiryTime=new Date(existing.expiry).getTime();
+		if(!Number.isFinite(expiryTime) || expiryTime<=Date.now()){
+			await Promise.all([
+				Surl.deleteOne({_id:existing._id}),
+				redispublisher.del(`${keys.coderecord}${shortcode}`),
+				redispublisher.del(cacheKey)
+			]);
+			return res.status(410).json({message:"Shortcode expired"});
+		}
+		destination=new URL(existing.original_url);
+		if(!['http:','https:'].includes(destination.protocol)) return res.status(400).json({message:'Invalid redirect destination'});
+		const ttlSeconds=Math.max(1,Math.ceil((expiryTime-Date.now())/1000));
+		await Promise.all([
+			redispublisher.set(`${keys.coderecord}${shortcode}`,shortcode,{EX:ttlSeconds}),
+			redispublisher.set(cacheKey,destination.toString(),{EX:ttlSeconds})
+		]);
+	}
+	if(!['http:','https:'].includes(destination.protocol)) return res.status(400).json({message:'Invalid redirect destination'});
+	try {
+		await Promise.all([
+			redispublisher.incr(`${keys.clickcount}${shortcode}`),
+			redispublisher.zIncrBy(keys.clicks,1,shortcode),
+			redispublisher.zAdd(`Recent Redirect Visits: ${shortcode}`,{score:Date.now(),value:randomUUID()}),
+			redispublisher.zRemRangeByScore(`Recent Redirect Visits: ${shortcode}`,0,Date.now()-300000),
+			redispublisher.expire(`Recent Redirect Visits: ${shortcode}`,600)
+		]);
+	} catch(metricsError) {
+		console.error('Could not record redirect analytics',metricsError);
+	}
+	res.redirect(destination.toString())
 	} catch (error) {
 		console.log(error)
 		return res.status(500).json({message:'Internal Server Error',error})
@@ -536,7 +540,10 @@ async function startapp(){
 		mongoose.connect(MONGODB_URL).then(()=>console.log('MongoDB connected'))
 	]);
 	await redissubscriber.subscribe('notifications',(message)=>{
-		for (const client of activeclients) client.write(`data:${message}\n\n`)
+		const event=JSON.parse(message);
+		for (const [client,username] of activeclients) {
+			if(username===event.creator) client.write(`data:${message}\n\n`)
+		}
 	})
     app.listen(port, () => {
 	console.log(`Shortin is running at Port: ${port}`);
